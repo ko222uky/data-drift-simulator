@@ -13,7 +13,6 @@ Data drift is simulated by a smooth ramping to a new set of randomized points.
 The verbose description of the workflow can be understood as follows:
 
 ```mermaid
-
 ---
 config:
   htmlLabels: false
