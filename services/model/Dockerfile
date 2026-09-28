@@ -22,7 +22,8 @@ USER app
 ENV PATH="/app/.venv/bin:$PATH"
 
 EXPOSE 8000
-HEALTHCHECK --interval=15s --timeout=3s --start-period=60s \
+# Importing PyTorch is slow on small droplets.
+HEALTHCHECK --interval=15s --timeout=3s --start-period=120s \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"
 # One worker: the monitoring loop is in-process state and must not be duplicated.
 CMD ["uvicorn", "model_service.api:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
