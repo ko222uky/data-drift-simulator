@@ -11,7 +11,7 @@ Three kinds of settings live here:
   Changes apply from the next training onwards.
 """
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, create_model, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -39,7 +39,11 @@ class TrainingConfig(BaseModel):
     hidden_units: int = Field(64, ge=4, le=1024, description="Width of each of the two hidden layers")
     batch_size: int = Field(128, ge=8, le=4096, description="Mini-batch size")
     validation_fraction: float = Field(
-        0.2, ge=0.05, le=0.5, description="Share of the window's intervals held out for validation, newest first"
+        0.2, ge=0.05, le=0.5, description="Validation share: of intervals (temporal split) or rows (random split)"
+    )
+    split_method: Literal["temporal", "random"] = Field(
+        "temporal",
+        description="temporal: validate on the newest intervals; random: validate on a random sample of rows",
     )
 
 
@@ -100,6 +104,7 @@ class ServiceSettings(BaseSettings):
     hidden_units: int = 64
     train_batch_size: int = 128
     validation_fraction: float = 0.2
+    split_method: Literal["temporal", "random"] = "temporal"
 
     def initial_monitor_config(self) -> MonitorConfig:
         return MonitorConfig(**{name: getattr(self, name) for name in MonitorConfig.model_fields})

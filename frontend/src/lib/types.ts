@@ -20,6 +20,7 @@ export interface TrainingConfig {
   hidden_units: number;
   batch_size: number;
   validation_fraction: number;
+  split_method: "temporal" | "random";
 }
 
 export interface EpochMetrics {

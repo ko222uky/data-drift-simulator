@@ -68,7 +68,11 @@ function Fact({ label, value, detail }: { label: string; value: string; detail?:
 }
 
 function holdoutText(r: TrainingRun) {
-  if (r.split_method === "random") return `Random ${Math.round(r.config.validation_fraction * 100)}% (one interval)`;
+  if (r.split_method === "random") {
+    const share = `Random ${Math.round(r.config.validation_fraction * 100)}% of rows`;
+    // A time-based split falls back to random when all rows share one interval (the initial model).
+    return r.config.split_method === "temporal" ? `${share} (one interval)` : share;
+  }
   return r.val_from_interval === r.interval
     ? `Interval ${r.interval}`
     : `Intervals ${r.val_from_interval}–${r.interval}`;

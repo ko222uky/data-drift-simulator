@@ -33,6 +33,10 @@ def test_endpoints(settings):
         assert client.get("/status").json()["training_config"]["patience"] == 3
         assert client.put("/training-config", json={"max_epochs": 0}).status_code == 422
         assert client.put("/training-config", json={}).status_code == 422
+        assert client.put("/training-config", json={"split_method": "sideways"}).status_code == 422
+        tc = client.put("/training-config", json={"split_method": "random"}).json()
+        assert tc["split_method"] == "random"
+        client.put("/training-config", json={"split_method": "temporal"})
 
         for _ in range(3):
             engine.step()

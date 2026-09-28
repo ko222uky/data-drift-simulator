@@ -16,7 +16,28 @@ const FIELDS: FieldSpec<TrainingConfig>[] = [
   { key: "weight_decay", label: "Weight decay", step: "any", min: 0, max: 1, help: "AdamW decoupled weight decay; higher = stronger regularisation" },
   { key: "hidden_units", label: "Hidden units", step: 1, min: 4, max: 1024, help: "Width of each of the two hidden layers" },
   { key: "batch_size", label: "Mini-batch size", step: 1, min: 8, max: 4096 },
-  { key: "validation_fraction", label: "Hold-out fraction", step: 0.05, min: 0.05, max: 0.5, help: "Share of the window's intervals validated on, newest first" },
+  {
+    key: "split_method",
+    kind: "choice",
+    label: "Validation split",
+    options: [
+      { value: "temporal", label: "Recent intervals" },
+      { value: "random", label: "Random rows" },
+    ],
+    help: "Time-based validates on the newest intervals (honest during drift); random samples rows from the whole window",
+  },
+  {
+    key: "validation_fraction",
+    label: "Validation share",
+    step: 0.05,
+    min: 0.05,
+    max: 0.5,
+    help: "Time-based: share of the window's intervals; random: share of rows",
+    describe: (v) => {
+      const val = Math.round(Number(v) * 100);
+      return Number.isFinite(val) && val > 0 && val < 100 ? `Train : validation = ${100 - val} : ${val}` : null;
+    },
+  },
 ];
 
 export function TrainingParams({

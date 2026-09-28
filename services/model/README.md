@@ -104,6 +104,8 @@ Each training (the initial model and every retrain) works as follows:
    than rows keeps the large initial dataset from pushing all the drifted data into
    validation early in a session. The initial model has only interval 0, so it uses a random split.
    Validating on the newest data estimates next-batch performance honestly while drift is in progress.
+   The split method is configurable: `random` samples validation rows from the whole window
+   instead, which is useful for comparing the two approaches. Expect optimistic scores during drift.
 2. **AdamW** with decoupled weight decay.
 3. **Early stopping.** Training stops once validation loss hasn't improved (by more than 1e-4)
    for `patience` epochs, or at `max_epochs`. The **best epoch's weights are restored**, and its
@@ -122,7 +124,8 @@ Initial training parameters, all changeable live from the dashboard (applied fro
 | `MODEL_WEIGHT_DECAY` | 0.001 | AdamW weight decay |
 | `MODEL_HIDDEN_UNITS` | 64 | Width of both hidden layers |
 | `MODEL_TRAIN_BATCH_SIZE` | 128 | Mini-batch size |
-| `MODEL_VALIDATION_FRACTION` | 0.2 | Share of intervals held out |
+| `MODEL_VALIDATION_FRACTION` | 0.2 | Validation share: of intervals (time-based) or rows (random); train : validation = 80 : 20 |
+| `MODEL_SPLIT_METHOD` | `temporal` | `temporal` validates on the newest intervals; `random` on a random sample of rows |
 
 ## Design notes
 
