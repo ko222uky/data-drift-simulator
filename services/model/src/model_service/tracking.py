@@ -5,9 +5,10 @@ unreachable, failures are logged and the simulation carries on. Each service ses
 produces:
 
 * one long-lived ``monitoring-<session>`` run with a metric point per interval, and
-* one ``train-v<N>`` run per (re)training with params, per-epoch curves, final
-  validation metrics and the PyTorch model, registered as a new version of the
-  registered model with the ``champion`` alias pointing at the deployed version.
+* one ``train-v<N>`` run per (re)training with params (hyper-parameters, split),
+  per-epoch curves, best-epoch validation metrics and the PyTorch model, registered
+  as a new version of the registered model with the ``champion`` alias pointing at
+  the deployed version.
 """
 
 import logging
@@ -113,11 +114,14 @@ class Tracker:
                 mlflow.log_params(params)
                 for epoch, entry in enumerate(result.history):
                     mlflow.log_metrics(entry, step=epoch)
+                # "final_*" are the metrics of the deployed weights, i.e. the best epoch.
                 mlflow.log_metrics(
                     {
                         "final_val_accuracy": result.val_accuracy,
                         "final_val_loss": result.val_loss,
                         "final_train_accuracy": result.train_accuracy,
+                        "best_epoch": result.best_epoch,
+                        "epochs_run": result.epochs_run,
                     }
                 )
                 # A failed model upload should not discard the run's params and metrics.

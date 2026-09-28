@@ -23,6 +23,26 @@ def test_endpoints(settings):
         assert client.put("/config", json={}).status_code == 422
         assert client.put("/config", json={"accuracy_threshold": 2}).status_code == 422
 
+        runs = client.get("/trainings").json()
+        assert [r["version"] for r in runs] == [1]
+        assert runs[0]["split_method"] == "random"  # the initial data is all interval 0
+        assert len(runs[0]["history"]) == runs[0]["epochs_run"]
+
+        tc = client.put("/training-config", json={"patience": 3, "weight_decay": 0.01}).json()
+        assert (tc["patience"], tc["weight_decay"]) == (3, 0.01)
+        assert client.get("/status").json()["training_config"]["patience"] == 3
+        assert client.put("/training-config", json={"max_epochs": 0}).status_code == 422
+        assert client.put("/training-config", json={}).status_code == 422
+
+        for _ in range(3):
+            engine.step()
+        engine.request("retrain")
+        engine.run_pending()
+        latest = client.get("/trainings?limit=1").json()[0]
+        assert latest["version"] == 2
+        assert latest["split_method"] == "temporal"
+        assert latest["config"]["patience"] == 3
+
         assert client.post("/retrain").status_code == 202
         assert client.post("/pause").status_code == 200
         assert client.get("/status").json()["paused"] is True

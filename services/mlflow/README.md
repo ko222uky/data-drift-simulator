@@ -11,7 +11,7 @@ to it; operators browse it at `/mlflow/` after signing in.
 |---|---|---|
 | Experiment `drift-monitoring` | first start | all runs below |
 | Run `monitoring-<session>` | each model-service session | params of the problem + policy; per-interval metrics `live_accuracy`, `live_loss`, `model_version`, `drift_progress`; tags for every policy change |
-| Run `train-v<N>` | each (re)training | params (reason, window, rows); per-epoch `train_/val_ loss & accuracy`; `final_val_accuracy`; the PyTorch model |
+| Run `train-v<N>` | each (re)training | params (reason, window, rows, training hyper-parameters, hold-out split); per-epoch `train_/val_ loss & accuracy`; `best_epoch`, `epochs_run`, and `final_*` metrics of the deployed (best-epoch) weights; the PyTorch model |
 | Registered model `drift-classifier` | each training | version N per training; alias **`champion`** → deployed version |
 
 ## How it runs

@@ -11,13 +11,13 @@ and reports everything to MLflow.
 | Concern | Module | Notes |
 |---|---|---|
 | Data simulation | `simulator.py` | K latent classes with centres P in R^M; Gaussian noise; linear drift to new centres P2 at rate r |
-| Classifier | `network.py` | 2-hidden-layer MLP; input standardisation baked into the module as buffers |
+| Classifier + training | `network.py` | 2-hidden-layer MLP (input standardisation baked in); AdamW, early stopping, time-based hold-out |
 | Control loop | `monitor.py` | One interval per tick: generate → predict → record → maybe retrain |
 | Persistence | `storage.py` | Rolling observation window, per-interval metrics, event log (Postgres or SQLite) |
 | Visualisation | `projection.py` | PCA fitted once per session and frozen, so drift is visible in 2-D |
 | Tracking | `tracking.py` | Monitoring run + one run per training; models registered with a `champion` alias |
 | HTTP API | `api.py`, `schemas.py` | FastAPI; OpenAPI docs at `/docs` |
-| Config | `config.py` | `MODEL_*` env vars; runtime policy editable via `PUT /config` |
+| Config | `config.py` | `MODEL_*` env vars; monitoring policy (`PUT /config`) and training parameters (`PUT /training-config`) editable at runtime |
 
 ## The control loop
 
@@ -48,6 +48,8 @@ GET routes are public; everything else is protected by the gateway (see `service
 | GET | `/events?limit=` | Event log (newest first) |
 | GET | `/projection?max_points=` | 2-D projected points (W + older), current centres, drift targets |
 | GET / PUT | `/config` | Read / partially update the monitoring policy |
+| GET / PUT | `/training-config` | Read / partially update training parameters (used from the next training) |
+| GET | `/trainings?limit=` | Recent training runs, newest first, with per-epoch curves |
 | POST | `/drift` | Start drifting to new random centres |
 | POST | `/retrain` | Queue a manual retrain on W |
 | POST | `/pause`, `/resume` | Pause / resume the interval loop |
@@ -65,7 +67,6 @@ Fixed at start-up (restart to change):
 | `MODEL_NOISE_STD` | 1.5 | Spread around each centre (higher = harder problem) |
 | `MODEL_CENTER_SPREAD` | 4.0 | Centres drawn from [-spread, spread]^M |
 | `MODEL_SEED` | 7 | RNG seed |
-| `MODEL_EPOCHS`, `MODEL_LEARNING_RATE`, `MODEL_HIDDEN_UNITS` | 30, 0.01, 64 | Training |
 | `MODEL_DATABASE_URL` | `sqlite:///./model_service.db` | SQLAlchemy URL |
 | `MODEL_MLFLOW_TRACKING_URI` | *(empty = disabled)* | e.g. `http://mlflow:5000/mlflow` |
 | `MODEL_MLFLOW_EXPERIMENT` | `drift-monitoring` | |
@@ -75,9 +76,39 @@ Initial runtime policy, which you can change live from the dashboard: `MODEL_BAT
 `MODEL_INTERVAL_SECONDS` (5), `MODEL_ACCURACY_THRESHOLD` (0.85), `MODEL_BREACH_INTERVALS`
 (i=3), `MODEL_WINDOW_INTERVALS` (w=10), `MODEL_RETRY_INTERVALS` (I=5), `MODEL_DRIFT_RATE` (r=0.05).
 
+## Training
+
+Each training (the initial model and every retrain) works as follows:
+
+1. **Time-based hold-out.** Validation uses the newest `ceil(validation_fraction × intervals in the data)`
+   whole intervals, always leaving at least one interval to train on. Counting intervals rather
+   than rows keeps the large initial dataset from pushing all the drifted data into
+   validation early in a session. The initial model has only interval 0, so it uses a random split.
+   Validating on the newest data estimates next-batch performance honestly while drift is in progress.
+2. **AdamW** with decoupled weight decay.
+3. **Early stopping.** Training stops once validation loss hasn't improved (by more than 1e-4)
+   for `patience` epochs, or at `max_epochs`. The **best epoch's weights are restored**, and its
+   metrics are the ones reported, stored and compared with the threshold.
+
+Every run is stored in the `training_runs` table (served by `/trainings` for the dashboard) and
+logged to MLflow (`train-v<N>`, with `best_epoch` and `epochs_run` metrics).
+
+Initial training parameters, all changeable live from the dashboard (applied from the next training):
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `MODEL_MAX_EPOCHS` | 50 | Upper bound on epochs |
+| `MODEL_PATIENCE` | 5 | Epochs without improvement before stopping |
+| `MODEL_LEARNING_RATE` | 0.01 | AdamW learning rate |
+| `MODEL_WEIGHT_DECAY` | 0.001 | AdamW weight decay |
+| `MODEL_HIDDEN_UNITS` | 64 | Width of both hidden layers |
+| `MODEL_TRAIN_BATCH_SIZE` | 128 | Mini-batch size |
+| `MODEL_VALIDATION_FRACTION` | 0.2 | Share of intervals held out |
+
 ## Design notes
 
-- **Each process start is a new session.** The simulation state lives in memory, so start-up
+- **Each process start is a new session.** Runtime changes to the policy and training parameters
+  also revert to the `MODEL_*` values. The simulation state lives in memory, so start-up
   clears the service's tables. Its MLflow history survives, tagged by `session`.
 - **Run exactly one worker.** The loop is in-process state; more uvicorn workers would mean
   more competing simulations.

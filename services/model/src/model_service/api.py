@@ -13,9 +13,9 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
 from pydantic import ValidationError
 
-from .config import ConfigUpdate, MonitorConfig, ServiceSettings
+from .config import ConfigUpdate, MonitorConfig, ServiceSettings, TrainingConfig, TrainingConfigUpdate
 from .monitor import MonitorEngine
-from .schemas import Accepted, EventOut, MetricPoint, ProjectionView, Status
+from .schemas import Accepted, EventOut, MetricPoint, ProjectionView, Status, TrainingRunOut
 from .storage import Store
 from .tracking import Tracker
 
@@ -75,6 +75,22 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
         try:
             return engine(request).update_config(update)
         except ValidationError as exc:  # values outside MonitorConfig's bounds
+            raise HTTPException(422, jsonable_encoder(exc.errors(include_url=False, include_context=False))) from exc
+
+    @app.get("/trainings", response_model=list[TrainingRunOut], tags=["training"])
+    def trainings(request: Request, limit: int = Query(10, ge=1, le=100)):
+        """Most recent training runs, newest first, with per-epoch curves."""
+        return engine(request).store.recent_training_runs(limit)
+
+    @app.get("/training-config", response_model=TrainingConfig, tags=["training"])
+    def get_training_config(request: Request):
+        return engine(request).training_config
+
+    @app.put("/training-config", response_model=TrainingConfig, tags=["training"])
+    def put_training_config(request: Request, update: TrainingConfigUpdate):
+        try:
+            return engine(request).update_training_config(update)
+        except ValidationError as exc:  # values outside TrainingConfig bounds
             raise HTTPException(422, jsonable_encoder(exc.errors(include_url=False, include_context=False))) from exc
 
     @app.post("/drift", response_model=Accepted, tags=["control"])

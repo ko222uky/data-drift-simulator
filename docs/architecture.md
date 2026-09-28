@@ -85,7 +85,7 @@ sequenceDiagram
         L->>ML: log live_accuracy @ step t
         alt accuracy < threshold for i intervals and no cool-down
             L->>DB: load window W (last w intervals)
-            L->>L: train v(k+1) outside the lock
+            L->>L: train v(k+1) outside the lock (hold out newest intervals, AdamW, early stopping)
             L->>ML: run train-v(k+1), register model, move @champion
             L->>L: hot-swap deployed model
             opt validation still < threshold

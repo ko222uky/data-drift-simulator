@@ -1,4 +1,4 @@
-"""Persistence for the observation window, per-interval metrics and the event log.
+"""Persistence for the observation window, per-interval metrics, training runs and the event log.
 
 Only the retraining window W plus ``w`` older intervals of observations are kept (see
 the README); older rows are pruned every interval, so storage stays bounded no matter
@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import numpy as np
-from sqlalchemy import JSON, DateTime, Float, Integer, String, create_engine, delete, func, select
+from sqlalchemy import JSON, Boolean, DateTime, Float, Integer, String, create_engine, delete, func, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
 
@@ -53,6 +53,30 @@ class Event(Base):
     kind: Mapped[str] = mapped_column(String(32))
     message: Mapped[str] = mapped_column(String(500))
     data: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+
+
+class TrainingRun(Base):
+    """One (re)training: its outcome and the per-epoch curves, for the dashboard."""
+
+    __tablename__ = "training_runs"
+
+    version: Mapped[int] = mapped_column(Integer, primary_key=True)
+    interval: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    reason: Mapped[str] = mapped_column(String(32))
+    split_method: Mapped[str] = mapped_column(String(16))
+    val_from_interval: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    n_train: Mapped[int] = mapped_column(Integer)
+    n_val: Mapped[int] = mapped_column(Integer)
+    best_epoch: Mapped[int] = mapped_column(Integer)
+    epochs_run: Mapped[int] = mapped_column(Integer)
+    stopped_early: Mapped[bool] = mapped_column(Boolean)
+    train_accuracy: Mapped[float] = mapped_column(Float)
+    val_accuracy: Mapped[float] = mapped_column(Float)
+    val_loss: Mapped[float] = mapped_column(Float)
+    config: Mapped[dict[str, Any]] = mapped_column(JSON)
+    history: Mapped[list[dict[str, float]]] = mapped_column(JSON)
+    mlflow_run_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 @dataclass
@@ -128,6 +152,15 @@ class Store:
         with self.session() as s, s.begin():
             s.add(event)
         return event
+
+    def add_training_run(self, run: TrainingRun) -> None:
+        with self.session() as s, s.begin():
+            s.add(run)
+
+    def recent_training_runs(self, limit: int) -> list[TrainingRun]:
+        """Newest first."""
+        with self.session() as s:
+            return list(s.scalars(select(TrainingRun).order_by(TrainingRun.version.desc()).limit(limit)).all())
 
     def recent_events(self, limit: int) -> list[Event]:
         with self.session() as s:

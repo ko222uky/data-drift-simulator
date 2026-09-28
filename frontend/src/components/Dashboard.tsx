@@ -8,6 +8,8 @@ import { Controls } from "./Controls";
 import { EventLog } from "./EventLog";
 import { ProjectionChart } from "./ProjectionChart";
 import { StatTiles } from "./StatTiles";
+import { TrainingParams } from "./TrainingParams";
+import { TrainingRunsChart } from "./TrainingRunsChart";
 
 const POLL_MS = 2000;
 
@@ -15,23 +17,27 @@ const POLL_MS = 2000;
 const fetchMetrics = () => modelApi.metrics(300);
 const fetchEvents = () => modelApi.events(100);
 const fetchProjection = () => modelApi.projection(1500);
+const fetchTrainings = () => modelApi.trainings(6);
 
 export function Dashboard() {
   const status = usePolling(modelApi.status, POLL_MS);
   const metrics = usePolling(fetchMetrics, POLL_MS);
   const events = usePolling(fetchEvents, POLL_MS);
   const projection = usePolling(fetchProjection, POLL_MS * 2);
+  const trainings = usePolling(fetchTrainings, POLL_MS * 2);
 
   const { refresh: refreshStatus } = status;
   const { refresh: refreshMetrics } = metrics;
   const { refresh: refreshEvents } = events;
   const { refresh: refreshProjection } = projection;
+  const { refresh: refreshTrainings } = trainings;
   const refreshAll = useCallback(() => {
     refreshStatus();
     refreshMetrics();
     refreshEvents();
     refreshProjection();
-  }, [refreshStatus, refreshMetrics, refreshEvents, refreshProjection]);
+    refreshTrainings();
+  }, [refreshStatus, refreshMetrics, refreshEvents, refreshProjection, refreshTrainings]);
 
   const offline = status.error && !status.data;
 
@@ -65,6 +71,13 @@ export function Dashboard() {
           <ProjectionChart projection={projection.data} nClasses={status.data?.problem.n_classes ?? 0} />
         </div>
         <Controls status={status.data} onChange={refreshAll} />
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-3">
+        <div className="lg:col-span-2">
+          <TrainingRunsChart runs={trainings.data ?? []} />
+        </div>
+        <TrainingParams status={status.data} latestRun={trainings.data?.[0]} onChange={refreshAll} />
       </div>
 
       <EventLog events={events.data ?? []} />

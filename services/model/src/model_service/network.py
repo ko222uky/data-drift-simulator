@@ -1,10 +1,14 @@
 """PyTorch classifier and its training loop."""
 
+import copy
+import math
 from dataclasses import dataclass, field
 
 import numpy as np
 import torch
 from torch import nn
+
+from .config import TrainingConfig
 
 
 class Classifier(nn.Module):
@@ -31,14 +35,33 @@ class Classifier(nn.Module):
 
 
 @dataclass
+class Split:
+    """Which rows train and which validate.
+
+    ``method`` is "temporal" when validation is the most recent intervals, or "random"
+    when every row comes from one interval (the initial dataset) so there is no time
+    order to respect.
+    """
+
+    train_idx: np.ndarray
+    val_idx: np.ndarray
+    method: str
+    val_from_interval: int | None  # first interval of the temporal hold-out
+
+
+@dataclass
 class TrainResult:
-    model: Classifier
-    train_accuracy: float
-    val_accuracy: float
-    val_loss: float
+    model: Classifier  # weights from the best epoch (lowest validation loss)
+    train_accuracy: float  # at the best epoch
+    val_accuracy: float  # at the best epoch
+    val_loss: float  # at the best epoch
     n_train: int
     n_val: int
-    history: list[dict[str, float]] = field(default_factory=list)  # one entry per epoch
+    best_epoch: int  # 0-based
+    epochs_run: int
+    stopped_early: bool
+    split: Split
+    history: list[dict[str, float]] = field(default_factory=list)  # one entry per epoch run
 
 
 @dataclass
@@ -59,43 +82,66 @@ def evaluate(model: Classifier, features: np.ndarray, labels: np.ndarray) -> Eva
     return Evaluation(accuracy, loss, predictions.numpy())
 
 
+def split_by_time(intervals: np.ndarray, validation_fraction: float, seed: int) -> Split:
+    """Hold out the most recent intervals for validation.
+
+    The newest ``ceil(validation_fraction * number_of_intervals)`` intervals are held out,
+    always leaving at least one interval to train on. Counting *intervals* rather than
+    rows matters early in a session, when the window still contains the large initial
+    dataset: a row-based 20% would then hold out almost all of the drifted data and
+    train on stale data. Validating on the newest data estimates how the model will do
+    on the *next* batch, which a random split cannot do while the data is drifting.
+    """
+    unique = np.unique(intervals)  # ascending
+    if len(unique) < 2:
+        # A single interval (e.g. the initial dataset): no time order, so split randomly.
+        n = len(intervals)
+        n_val = max(1, int(round(n * validation_fraction)))
+        order = np.random.default_rng(seed).permutation(n)
+        return Split(np.sort(order[n_val:]), np.sort(order[:n_val]), "random", None)
+    n_held = min(max(1, math.ceil(validation_fraction * len(unique))), len(unique) - 1)
+    val_from = int(unique[-n_held])
+    is_val = intervals >= val_from
+    return Split(np.flatnonzero(~is_val), np.flatnonzero(is_val), "temporal", val_from)
+
+
 def train(
     features: np.ndarray,
     labels: np.ndarray,
+    intervals: np.ndarray,
     *,
     n_classes: int,
-    hidden_units: int,
-    epochs: int,
-    learning_rate: float,
-    batch_size: int,
-    validation_fraction: float,
+    config: TrainingConfig,
     seed: int,
 ) -> TrainResult:
-    generator = torch.Generator().manual_seed(seed)
-    x = torch.from_numpy(features)
-    y = torch.from_numpy(labels)
+    """Train with AdamW and early stopping on validation loss.
 
-    order = torch.randperm(len(x), generator=generator)
-    n_val = max(1, int(len(x) * validation_fraction))
-    val_idx, train_idx = order[:n_val], order[n_val:]
-    x_train, y_train = x[train_idx], y[train_idx]
+    Training stops once validation loss has not improved for ``config.patience`` epochs
+    (or at ``config.max_epochs``), and the weights from the best epoch are restored.
+    """
+    split = split_by_time(intervals, config.validation_fraction, seed)
+    x_train = torch.from_numpy(features[split.train_idx])
+    y_train = torch.from_numpy(labels[split.train_idx])
+    x_val, y_val = features[split.val_idx], labels[split.val_idx]
 
     torch.manual_seed(seed)
-    model = Classifier(x.shape[1], n_classes, hidden_units)
+    generator = torch.Generator().manual_seed(seed)
+    model = Classifier(features.shape[1], n_classes, config.hidden_units)
     model.mean.copy_(x_train.mean(dim=0))
     model.std.copy_(x_train.std(dim=0).clamp_min(1e-6))
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate, weight_decay=config.weight_decay)
 
     history: list[dict[str, float]] = []
-    for _ in range(epochs):
+    best_loss, best_epoch, best_state = float("inf"), 0, copy.deepcopy(model.state_dict())
+    for epoch in range(config.max_epochs):
         model.train()
-        for batch in torch.randperm(len(x_train), generator=generator).split(batch_size):
+        for batch in torch.randperm(len(x_train), generator=generator).split(config.batch_size):
             optimizer.zero_grad()
             loss = nn.functional.cross_entropy(model(x_train[batch]), y_train[batch])
             loss.backward()
             optimizer.step()
-        train_eval = evaluate(model, features[train_idx.numpy()], labels[train_idx.numpy()])
-        val_eval = evaluate(model, features[val_idx.numpy()], labels[val_idx.numpy()])
+        train_eval = evaluate(model, x_train.numpy(), y_train.numpy())
+        val_eval = evaluate(model, x_val, y_val)
         history.append(
             {
                 "train_loss": train_eval.loss,
@@ -104,14 +150,25 @@ def train(
                 "val_accuracy": val_eval.accuracy,
             }
         )
+        if val_eval.loss < best_loss - 1e-4:
+            best_loss, best_epoch = val_eval.loss, epoch
+            best_state = copy.deepcopy(model.state_dict())
+        elif epoch - best_epoch >= config.patience:
+            break
 
-    last = history[-1]
+    model.load_state_dict(best_state)
+    model.eval()
+    best = history[best_epoch]
     return TrainResult(
         model=model,
-        train_accuracy=last["train_accuracy"],
-        val_accuracy=last["val_accuracy"],
-        val_loss=last["val_loss"],
-        n_train=len(train_idx),
-        n_val=n_val,
+        train_accuracy=best["train_accuracy"],
+        val_accuracy=best["val_accuracy"],
+        val_loss=best["val_loss"],
+        n_train=len(split.train_idx),
+        n_val=len(split.val_idx),
+        best_epoch=best_epoch,
+        epochs_run=len(history),
+        stopped_early=len(history) < config.max_epochs,
+        split=split,
         history=history,
     )

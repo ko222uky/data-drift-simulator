@@ -12,6 +12,44 @@ export interface MonitorConfig {
   drift_rate: number;
 }
 
+export interface TrainingConfig {
+  max_epochs: number;
+  patience: number;
+  learning_rate: number;
+  weight_decay: number;
+  hidden_units: number;
+  batch_size: number;
+  validation_fraction: number;
+}
+
+export interface EpochMetrics {
+  train_loss: number;
+  train_accuracy: number;
+  val_loss: number;
+  val_accuracy: number;
+}
+
+export interface TrainingRun {
+  version: number;
+  interval: number;
+  created_at: string;
+  reason: string;
+  split_method: "temporal" | "random";
+  val_from_interval: number | null;
+  n_train: number;
+  n_val: number;
+  /** 0-based index into history of the epoch whose weights were kept. */
+  best_epoch: number;
+  epochs_run: number;
+  stopped_early: boolean;
+  train_accuracy: number;
+  val_accuracy: number;
+  val_loss: number;
+  config: TrainingConfig;
+  history: EpochMetrics[];
+  mlflow_run_id: string | null;
+}
+
 export interface ModelInfo {
   version: number;
   trained_at_interval: number;
@@ -33,6 +71,7 @@ export interface Status {
   model: ModelInfo | null;
   problem: { n_features: number; n_classes: number; initial_size: number; [key: string]: number };
   config: MonitorConfig;
+  training_config: TrainingConfig;
   mlflow_enabled: boolean;
 }
 

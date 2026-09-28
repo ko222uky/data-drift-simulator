@@ -1,7 +1,7 @@
 // Thin client for the gateway. All URLs are same-origin: the gateway routes
 // /api/model/* to the model service and /api/auth/* to the auth service.
 
-import type { MetricPoint, ModelEvent, MonitorConfig, Projection, Status } from "./types";
+import type { MetricPoint, ModelEvent, MonitorConfig, Projection, Status, TrainingConfig, TrainingRun } from "./types";
 
 export class ApiError extends Error {
   constructor(
@@ -44,6 +44,9 @@ export const modelApi = {
   projection: (maxPoints = 1500) => request<Projection>(`/api/model/projection?max_points=${maxPoints}`),
   updateConfig: (update: Partial<MonitorConfig>) =>
     request<MonitorConfig>("/api/model/config", { method: "PUT", body: JSON.stringify(update) }),
+  trainings: (limit = 6) => request<TrainingRun[]>(`/api/model/trainings?limit=${limit}`),
+  updateTrainingConfig: (update: Partial<TrainingConfig>) =>
+    request<TrainingConfig>("/api/model/training-config", { method: "PUT", body: JSON.stringify(update) }),
   drift: () => post<{ detail: string }>("/api/model/drift"),
   retrain: () => post<{ detail: string }>("/api/model/retrain"),
   pause: () => post<{ detail: string }>("/api/model/pause"),

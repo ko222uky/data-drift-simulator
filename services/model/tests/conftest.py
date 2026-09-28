@@ -13,7 +13,7 @@ def settings(tmp_path) -> ServiceSettings:
         mlflow_tracking_uri="",
         autostart=False,
         initial_size=600,
-        epochs=15,
+        max_epochs=15,
         batch_size=100,
         window_intervals=4,
         breach_intervals=2,

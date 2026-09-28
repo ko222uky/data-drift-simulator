@@ -9,6 +9,7 @@ const KIND_LABELS: Record<string, string> = {
   drift_started: "Drift",
   drift_completed: "Drift done",
   config_updated: "Config",
+  training_config_updated: "Training cfg",
   paused: "Paused",
   resumed: "Resumed",
 };

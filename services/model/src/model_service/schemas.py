@@ -5,7 +5,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from .config import MonitorConfig
+from .config import MonitorConfig, TrainingConfig
 from .monitor import Phase
 
 
@@ -35,6 +35,7 @@ class Status(BaseModel):
     model: ModelInfo | None
     problem: dict[str, Any]
     config: MonitorConfig
+    training_config: TrainingConfig
     mlflow_enabled: bool
 
 
@@ -78,6 +79,33 @@ class ProjectionView(BaseModel):
     points: list[ProjectedPoint]
     centers: list[ProjectedCenter]
     targets: list[ProjectedCenter]
+
+
+class EpochMetrics(BaseModel):
+    train_loss: float
+    train_accuracy: float
+    val_loss: float
+    val_accuracy: float
+
+
+class TrainingRunOut(BaseModel):
+    version: int
+    interval: int
+    created_at: datetime
+    reason: str
+    split_method: str
+    val_from_interval: int | None
+    n_train: int
+    n_val: int
+    best_epoch: int
+    epochs_run: int
+    stopped_early: bool
+    train_accuracy: float
+    val_accuracy: float
+    val_loss: float
+    config: TrainingConfig
+    history: list[EpochMetrics]
+    mlflow_run_id: str | None
 
 
 class Accepted(BaseModel):

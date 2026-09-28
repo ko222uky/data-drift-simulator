@@ -26,11 +26,11 @@ from typing import Any, Literal
 
 import numpy as np
 
-from .config import ConfigUpdate, MonitorConfig, ServiceSettings
+from .config import ConfigUpdate, MonitorConfig, ServiceSettings, TrainingConfig, TrainingConfigUpdate
 from .network import Classifier, TrainResult, evaluate, train
 from .projection import Projection
 from .simulator import DataSimulator
-from .storage import IntervalMetric, Store
+from .storage import IntervalMetric, Store, TrainingRun
 from .tracking import Tracker
 
 log = logging.getLogger(__name__)
@@ -56,6 +56,7 @@ class MonitorEngine:
         self.store = store
         self.tracker = tracker
         self.config: MonitorConfig = settings.initial_monitor_config()
+        self.training_config: TrainingConfig = settings.initial_training_config()
 
         self.lock = threading.RLock()
         self._thread: threading.Thread | None = None
@@ -93,8 +94,9 @@ class MonitorEngine:
             self.store.add_observations(0, initial.features, initial.labels, None)
             self.projection = Projection.fit(initial.features)
             self.tracker.start_session(self.session_id, {**self._problem_params(), **self.config.model_dump()})
+            intervals = np.zeros(len(initial.labels), dtype=np.int64)
             self.store.add_event(0, "session_started", f"Session {self.session_id}: generated N={s.initial_size} observations")
-        self._retrain(initial.features, initial.labels, reason="initial")
+        self._retrain(initial.features, initial.labels, intervals, reason="initial")
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -174,6 +176,20 @@ class MonitorEngine:
         self._wake.set()
         return self.config
 
+    def update_training_config(self, update: TrainingConfigUpdate) -> TrainingConfig:
+        """Change training hyper-parameters; they apply from the next training."""
+        with self.lock:
+            changes = update.model_dump(exclude_none=True)
+            self.training_config = TrainingConfig(**{**self.training_config.model_dump(), **changes})
+            self.store.add_event(
+                self.interval,
+                "training_config_updated",
+                ", ".join(f"{k}={v}" for k, v in changes.items()),
+                **changes,
+            )
+            self.tracker.log_config(self.interval, {f"training.{k}": v for k, v in changes.items()})
+        return self.training_config
+
     # -- the interval step -----------------------------------------------------------
 
     def step(self) -> None:
@@ -238,35 +254,54 @@ class MonitorEngine:
         if len(window.labels) < 20:
             log.warning("Not enough data in window to retrain (%d rows)", len(window.labels))
             return
-        self._retrain(window.features, window.labels, reason=reason)
+        self._retrain(window.features, window.labels, window.intervals, reason=reason)
 
-    def _retrain(self, features: np.ndarray, labels: np.ndarray, reason: str) -> None:
+    def _retrain(self, features: np.ndarray, labels: np.ndarray, intervals: np.ndarray, reason: str) -> None:
         s = self.settings
         with self.lock:
             self.training = True
             version = (self.deployed.version if self.deployed else 0) + 1
             t = self.interval
+            cfg = self.training_config
+            window_intervals = self.config.window_intervals
         try:
             # Training and MLflow logging happen outside the lock so the API stays responsive.
+            result: TrainResult = train(
+                features, labels, intervals, n_classes=s.n_classes, config=cfg, seed=s.seed + version
+            )
             params = {
                 **self._problem_params(),
+                **cfg.model_dump(),
                 "reason": reason,
                 "trained_at_interval": t,
-                "window_intervals": self.config.window_intervals,
+                "window_intervals": window_intervals,
                 "n_rows": len(labels),
+                "split": result.split.method,
+                "val_from_interval": result.split.val_from_interval,
+                "n_train": result.n_train,
+                "n_val": result.n_val,
             }
-            result: TrainResult = train(
-                features,
-                labels,
-                n_classes=s.n_classes,
-                hidden_units=s.hidden_units,
-                epochs=s.epochs,
-                learning_rate=s.learning_rate,
-                batch_size=s.train_batch_size,
-                validation_fraction=s.validation_fraction,
-                seed=s.seed + version,
-            )
             run_id = self.tracker.log_training(version, self.session_id, reason, params, result, features[:5])
+            self.store.add_training_run(
+                TrainingRun(
+                    version=version,
+                    interval=t,
+                    reason=reason,
+                    split_method=result.split.method,
+                    val_from_interval=result.split.val_from_interval,
+                    n_train=result.n_train,
+                    n_val=result.n_val,
+                    best_epoch=result.best_epoch,
+                    epochs_run=result.epochs_run,
+                    stopped_early=result.stopped_early,
+                    train_accuracy=result.train_accuracy,
+                    val_accuracy=result.val_accuracy,
+                    val_loss=result.val_loss,
+                    config=cfg.model_dump(),
+                    history=result.history,
+                    mlflow_run_id=run_id,
+                )
+            )
         finally:
             with self.lock:
                 self.training = False
@@ -288,7 +323,8 @@ class MonitorEngine:
             self.store.add_event(
                 t,
                 "deployed",
-                f"Model v{version} deployed ({reason}); validation accuracy {result.val_accuracy:.3f} on {len(labels)} rows",
+                f"Model v{version} deployed ({reason}); validation accuracy {result.val_accuracy:.3f} "
+                f"(best epoch {result.best_epoch + 1} of {result.epochs_run}, {result.split.method} hold-out of {result.n_val} rows)",
                 version=version,
                 reason=reason,
                 val_accuracy=result.val_accuracy,
@@ -345,6 +381,7 @@ class MonitorEngine:
                 },
                 "problem": self._problem_params(),
                 "config": self.config.model_dump(),
+                "training_config": self.training_config.model_dump(),
                 "mlflow_enabled": self.tracker.enabled,
             }
 
@@ -396,7 +433,4 @@ class MonitorEngine:
             "initial_size": s.initial_size,
             "noise_std": s.noise_std,
             "center_spread": s.center_spread,
-            "epochs": s.epochs,
-            "learning_rate": s.learning_rate,
-            "hidden_units": s.hidden_units,
         }

@@ -1,15 +1,19 @@
 """Configuration.
 
-Two kinds of settings live here:
+Three kinds of settings live here:
 
 * ``ServiceSettings`` -- fixed for the lifetime of the process, read from environment
   variables prefixed ``MODEL_`` (e.g. ``MODEL_N_FEATURES=8``). Changing them requires a
-  restart because they define the shape of the simulated problem.
-* ``MonitorConfig`` -- the monitoring / retraining policy. Seeded from the environment
-  at start-up and editable at runtime through ``PUT /config``.
+  restart because they define the shape of the simulated problem. They also seed the
+  initial values of the two runtime configs below.
+* ``MonitorConfig`` -- the monitoring / retraining policy, editable via ``PUT /config``.
+* ``TrainingConfig`` -- how each (re)training runs, editable via ``PUT /training-config``.
+  Changes apply from the next training onwards.
 """
 
-from pydantic import BaseModel, Field, model_validator
+from typing import Any
+
+from pydantic import BaseModel, Field, create_model, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -25,22 +29,39 @@ class MonitorConfig(BaseModel):
     drift_rate: float = Field(0.05, gt=0, le=1, description="r: fraction of the path to the new centres covered per interval")
 
 
-class ConfigUpdate(BaseModel):
-    """Partial update for ``MonitorConfig``; unset fields are left unchanged."""
+class TrainingConfig(BaseModel):
+    """Runtime-tunable training hyper-parameters."""
 
-    batch_size: int | None = None
-    interval_seconds: float | None = None
-    accuracy_threshold: float | None = None
-    breach_intervals: int | None = None
-    window_intervals: int | None = None
-    retry_intervals: int | None = None
-    drift_rate: float | None = None
+    max_epochs: int = Field(50, ge=1, le=500, description="Upper bound on epochs; early stopping usually ends sooner")
+    patience: int = Field(5, ge=1, le=100, description="Stop after this many epochs without a lower validation loss")
+    learning_rate: float = Field(1e-2, gt=0, le=1, description="AdamW learning rate")
+    weight_decay: float = Field(1e-3, ge=0, le=1, description="AdamW decoupled weight decay (L2-style regularisation)")
+    hidden_units: int = Field(64, ge=4, le=1024, description="Width of each of the two hidden layers")
+    batch_size: int = Field(128, ge=8, le=4096, description="Mini-batch size")
+    validation_fraction: float = Field(
+        0.2, ge=0.05, le=0.5, description="Share of the window's intervals held out for validation, newest first"
+    )
 
+
+class _NonEmptyUpdate(BaseModel):
     @model_validator(mode="after")
-    def _not_empty(self) -> "ConfigUpdate":
+    def _not_empty(self) -> Any:
         if not self.model_dump(exclude_none=True):
             raise ValueError("at least one field must be provided")
         return self
+
+
+def _partial(model: type[BaseModel], name: str) -> type[BaseModel]:
+    """A model with every field of ``model`` optional, for PATCH-style updates.
+
+    Bounds are enforced when the update is merged into the full model.
+    """
+    fields = {k: (f.annotation | None, None) for k, f in model.model_fields.items()}
+    return create_model(name, __base__=_NonEmptyUpdate, __doc__=f"Partial update for {model.__name__}", **fields)
+
+
+ConfigUpdate = _partial(MonitorConfig, "ConfigUpdate")
+TrainingConfigUpdate = _partial(TrainingConfig, "TrainingConfigUpdate")
 
 
 class ServiceSettings(BaseSettings):
@@ -54,13 +75,6 @@ class ServiceSettings(BaseSettings):
     noise_std: float = Field(1.5, gt=0, description="Std-dev of observations around their class centre")
     seed: int = 7
 
-    # Training.
-    epochs: int = Field(30, ge=1)
-    learning_rate: float = Field(1e-2, gt=0)
-    hidden_units: int = Field(64, ge=4)
-    train_batch_size: int = Field(128, ge=8)
-    validation_fraction: float = Field(0.2, gt=0, lt=0.9)
-
     # Infrastructure.
     database_url: str = "sqlite:///./model_service.db"
     mlflow_tracking_uri: str = Field("", description="Empty disables MLflow logging")
@@ -68,7 +82,7 @@ class ServiceSettings(BaseSettings):
     registered_model_name: str = "drift-classifier"
     autostart: bool = Field(True, description="Start the interval loop when the service boots")
 
-    # Initial values for the runtime policy.
+    # Initial values for the runtime policy (MonitorConfig).
     batch_size: int = 100
     interval_seconds: float = 5.0
     accuracy_threshold: float = 0.85
@@ -77,5 +91,18 @@ class ServiceSettings(BaseSettings):
     retry_intervals: int = 5
     drift_rate: float = 0.05
 
+    # Initial values for training (TrainingConfig).
+    max_epochs: int = 50
+    patience: int = 5
+    learning_rate: float = 1e-2
+    weight_decay: float = 1e-3
+    hidden_units: int = 64
+    train_batch_size: int = 128
+    validation_fraction: float = 0.2
+
     def initial_monitor_config(self) -> MonitorConfig:
         return MonitorConfig(**{name: getattr(self, name) for name in MonitorConfig.model_fields})
+
+    def initial_training_config(self) -> TrainingConfig:
+        values = {name: getattr(self, name) for name in TrainingConfig.model_fields if name != "batch_size"}
+        return TrainingConfig(**values, batch_size=self.train_batch_size)
