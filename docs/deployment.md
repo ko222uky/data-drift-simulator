@@ -129,11 +129,82 @@ Then:
 - `https://demo.example.com/login`: operator sign-in
 - `https://demo.example.com/mlflow/`: MLflow UI (after sign-in)
 
+## Automatic deploys (GitHub Actions)
+
+Every push to `main`, including a merged pull request, runs CI. When all checks pass, the
+`deploy` job in `.github/workflows/ci.yml` deploys **that exact commit** to the droplet and
+smoke-tests the site. You can also redeploy `main` from **Actions → CI → Run workflow**.
+
+```mermaid
+sequenceDiagram
+    participant GH as GitHub Actions
+    participant D as Droplet (forced command)
+    participant R as GitHub repo
+    GH->>GH: tests, lint, build, config checks pass on main
+    GH->>D: ssh with the CI key, sending only the commit SHA
+    D->>D: check it's a 40-char SHA, take the deploy lock
+    D->>R: git fetch (read-only deploy key)
+    D->>D: refuse unless the SHA is on origin/main, then fast-forward to it
+    D->>D: deploy.sh builds, restarts and waits for the gateway
+    D-->>GH: exit status and log stream
+    GH->>GH: smoke test the public site
+```
+
+**How the CI key is locked down.** CI uses its own SSH key, separate from your personal key
+and from the GitHub deploy key. In `/root/.ssh/authorized_keys` it's bound to a *forced
+command*:
+
+```
+restrict,command="/usr/local/bin/mlops-ci-deploy" ssh-ed25519 AAAA… github-actions-deploy@…
+```
+
+- `restrict` disables shells, terminals and port or agent forwarding.
+- Whatever the client asks to run is passed to `mlops-ci-deploy` (source:
+  `deploy/droplet/ci-deploy.sh`), which accepts only a commit SHA already on `origin/main`.
+- A leaked key could therefore only redeploy code that's already merged.
+- The script lives outside the repo, so a `git pull` can never change a script while it runs.
+
+### Setting it up
+
+1. **Create the CI key** on your machine: `ssh-keygen -t ed25519 -N "" -C github-actions-deploy -f ci_deploy_key`.
+2. **Install the script and the key on the droplet:**
+
+   ```bash
+   scp deploy/droplet/ci-deploy.sh root@<droplet-ip>:/usr/local/bin/mlops-ci-deploy
+   ssh root@<droplet-ip> 'chmod 755 /usr/local/bin/mlops-ci-deploy'
+   ssh root@<droplet-ip> "echo 'restrict,command=\"/usr/local/bin/mlops-ci-deploy\" $(cat ci_deploy_key.pub)' >> ~/.ssh/authorized_keys"
+   ```
+
+3. **Add three repository secrets** in GitHub (**Settings → Secrets and variables → Actions →
+   New repository secret**):
+
+   | Secret | Value |
+   |---|---|
+   | `DEPLOY_HOST` | the droplet's IP |
+   | `DEPLOY_SSH_KEY` | the whole *private* key file `ci_deploy_key`, including the BEGIN/END lines |
+   | `DEPLOY_KNOWN_HOSTS` | the droplet's host key line from `ssh-keygen -F <droplet-ip>` (after you've verified its fingerprint), e.g. `203.0.113.10 ssh-ed25519 AAAA…` |
+
+4. **Delete the local private key** once it's saved in GitHub.
+
+The job uses a GitHub **environment** named `production`, so every deploy appears under the
+repo's *Deployments*. To require manual approval before each deploy, add yourself as a
+required reviewer under **Settings → Environments → production**.
+
+### Maintenance
+
+- **Changed `ci-deploy.sh`?** Reinstall it with the `scp` / `chmod` lines above.
+- **Revoke or rotate the CI key:** delete its line from `/root/.ssh/authorized_keys`. To
+  rotate, repeat steps 1–4.
+- **Serialised deploys:** they queue rather than overlap (a GitHub concurrency group plus a
+  lock file on the droplet, which manual `deploy.sh` runs through `mlops-ci-deploy` also
+  respect).
+- **Each deploy restarts the model service,** which starts a new simulation session.
+
 ## Operations
 
 | Task | Command (from `/opt/mlops-demo`) |
 |---|---|
-| Update to latest `main` | `bash deploy/droplet/deploy.sh` |
+| Update to latest `main` | Automatic on merge (see above); manual fallback: `bash deploy/droplet/deploy.sh` |
 | Status | `docker compose ps` |
 | Logs | `docker compose logs -f --tail=100 model` (or `gateway`, `mlflow`, …) |
 | Restart one service | `docker compose restart model` |
@@ -161,6 +232,8 @@ docker compose restart mlflow
 | Symptom | Check |
 |---|---|
 | `git clone` / `ssh -T git@github.com`: `Permission denied (publickey)` | GitHub doesn't know the key. Check the repo's Deploy keys list shows the same fingerprint as `ssh-keygen -lf ~/.ssh/github_deploy.pub`; re-paste it as one line if not. (A key added to the wrong repo or to your account authenticates instead.) |
+| Actions `deploy` job: `Host key verification failed` | `DEPLOY_KNOWN_HOSTS` doesn't match the droplet (for example after a rebuild). Re-verify the fingerprint and update the secret |
+| Actions `deploy` job: `is not on origin/main; refusing to deploy` | The run wasn't for a commit on `main`; only `main` deploys |
 | Browser shows a certificate error | DNS must resolve to the droplet *before* the first start; `docker compose logs gateway` shows the ACME errors |
 | Login succeeds, but controls still say "Sign in" | With HTTPS, `COOKIE_SECURE=true`. On plain HTTP it must be `false`, or the browser drops the cookie |
 | MLflow shows `Invalid Host header` / blocked requests | `PUBLIC_HOST` / `PUBLIC_ORIGIN` must match the address in the browser |
