@@ -78,9 +78,24 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
             raise HTTPException(422, jsonable_encoder(exc.errors(include_url=False, include_context=False))) from exc
 
     @app.get("/trainings", response_model=list[TrainingRunOut], tags=["training"])
-    def trainings(request: Request, limit: int = Query(10, ge=1, le=100)):
-        """Most recent training runs, newest first, with per-epoch curves."""
-        return engine(request).store.recent_training_runs(limit)
+    def trainings(
+        request: Request,
+        limit: int = Query(10, ge=1, le=100),
+        include_history: bool = Query(True, description="False omits per-epoch curves (cheap run list)"),
+    ):
+        """Most recent training runs kept this session, newest first."""
+        runs = engine(request).store.recent_training_runs(limit)
+        if include_history:
+            return runs
+        return [TrainingRunOut.model_validate(r, from_attributes=True).model_copy(update={"history": []}) for r in runs]
+
+    @app.get("/trainings/{version}", response_model=TrainingRunOut, tags=["training"])
+    def training(request: Request, version: int):
+        """One training run, with its per-epoch train/validation curves."""
+        run = engine(request).store.get_training_run(version)
+        if run is None:
+            raise HTTPException(404, f"no training run v{version} in this session")
+        return run
 
     @app.get("/training-config", response_model=TrainingConfig, tags=["training"])
     def get_training_config(request: Request):

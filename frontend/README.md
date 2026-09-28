@@ -8,7 +8,7 @@ A public dashboard for the live model, with operator controls behind sign-in.
 
 | Route | Content |
 |---|---|
-| `/` | Stat tiles (live accuracy, model state, deployed version, interval, drift progress); accuracy-per-interval chart with drift spans, threshold and redeploy markers (chart/table toggle); 2-D projection of window W plus older data with class centres P and drift targets P2; operator controls (including an automatic-retraining on/off switch); training runs (validation loss per epoch: latest run highlighted against previous ones, with the deployed epoch marked; chart/table toggle); training-parameter tuning (read-only when signed out); event log |
+| `/` | Stat tiles (live accuracy, model state, deployed version, interval, drift progress); accuracy-per-interval chart with drift spans, threshold and redeploy markers (chart/table toggle); 2-D projection of window W plus older data with class centres P and drift targets P2; operator controls (including an automatic-retraining on/off switch); training runs (validation loss per epoch: latest run highlighted against previous ones, with the deployed epoch marked; chart/table toggle); training-parameter tuning (read-only when signed out); a model-version widget (train vs. validation loss per epoch for any kept version, chart/table toggle); event log |
 | `/login` | Operator sign-in. `?next=/mlflow/` returns you to MLflow afterwards |
 
 ## How it talks to the backend

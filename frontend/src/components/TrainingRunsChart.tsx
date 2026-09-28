@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { CartesianGrid, Line, LineChart, ReferenceDot, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { formatLossTick } from "@/lib/format";
 import type { TrainingRun } from "@/lib/types";
 import { Panel, SegmentedToggle } from "./Panel";
 
@@ -167,7 +168,7 @@ export function TrainingRunsChart({ runs }: { runs: TrainingRun[] }) {
                 />
                 <YAxis
                   domain={[0, "auto"]}
-                  tickFormatter={(v: number) => v.toFixed(2)}
+                  tickFormatter={formatLossTick}
                   tick={{ fill: "var(--muted)", fontSize: 11 }}
                   tickLine={false}
                   axisLine={false}

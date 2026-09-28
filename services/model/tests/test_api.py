@@ -47,6 +47,13 @@ def test_endpoints(settings):
         assert latest["split_method"] == "temporal"
         assert latest["config"]["patience"] == 3
 
+        summary = client.get("/trainings?include_history=false").json()
+        assert [r["version"] for r in summary] == [2, 1]
+        assert all(r["history"] == [] for r in summary)
+        one = client.get("/trainings/1").json()
+        assert one["version"] == 1 and len(one["history"]) == one["epochs_run"]
+        assert client.get("/trainings/99").status_code == 404
+
         assert client.post("/retrain").status_code == 202
         assert client.get("/status").json()["auto_retrain"] is True
         assert client.post("/auto-retrain/pause").status_code == 200

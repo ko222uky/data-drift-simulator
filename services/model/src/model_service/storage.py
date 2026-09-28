@@ -162,6 +162,10 @@ class Store:
         with self.session() as s:
             return list(s.scalars(select(TrainingRun).order_by(TrainingRun.version.desc()).limit(limit)).all())
 
+    def get_training_run(self, version: int) -> TrainingRun | None:
+        with self.session() as s:
+            return s.get(TrainingRun, version)
+
     def recent_events(self, limit: int) -> list[Event]:
         with self.session() as s:
             rows = s.scalars(select(Event).order_by(Event.id.desc()).limit(limit)).all()

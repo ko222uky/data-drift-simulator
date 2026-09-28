@@ -50,7 +50,8 @@ GET routes are public; everything else is protected by the gateway (see `service
 | GET | `/projection?max_points=` | 2-D projected points (W + older), current centres, drift targets |
 | GET / PUT | `/config` | Read / partially update the monitoring policy |
 | GET / PUT | `/training-config` | Read / partially update training parameters (used from the next training) |
-| GET | `/trainings?limit=` | Recent training runs, newest first, with per-epoch curves |
+| GET | `/trainings?limit=&include_history=` | Training runs kept this session, newest first; `include_history=false` omits per-epoch curves (a cheap version list) |
+| GET | `/trainings/{version}` | One run with its per-epoch train/validation curves (404 if not kept) |
 | POST | `/drift` | Start drifting to new random centres |
 | POST | `/retrain` | Queue a manual retrain on W |
 | POST | `/pause`, `/resume` | Pause / resume the interval loop |

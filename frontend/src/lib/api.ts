@@ -45,6 +45,9 @@ export const modelApi = {
   updateConfig: (update: Partial<MonitorConfig>) =>
     request<MonitorConfig>("/api/model/config", { method: "PUT", body: JSON.stringify(update) }),
   trainings: (limit = 6) => request<TrainingRun[]>(`/api/model/trainings?limit=${limit}`),
+  /** Every kept run without per-epoch curves: cheap enough to list all versions. */
+  trainingList: (limit = 100) => request<TrainingRun[]>(`/api/model/trainings?limit=${limit}&include_history=false`),
+  training: (version: number) => request<TrainingRun>(`/api/model/trainings/${version}`),
   updateTrainingConfig: (update: Partial<TrainingConfig>) =>
     request<TrainingConfig>("/api/model/training-config", { method: "PUT", body: JSON.stringify(update) }),
   drift: () => post<{ detail: string }>("/api/model/drift"),
