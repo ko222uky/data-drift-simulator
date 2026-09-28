@@ -1,12 +1,16 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { CartesianGrid, ResponsiveContainer, Scatter, ScatterChart, Tooltip, XAxis, YAxis } from "recharts";
+import { CartesianGrid, ResponsiveContainer, Scatter, ScatterChart, XAxis, YAxis } from "recharts";
 import type { ProjectedCenter, ProjectedPoint, Projection } from "@/lib/types";
 import { ClassSwatch, Marker, classColor, classShape } from "./classStyle";
+import { NearestPointHover, type HoverItem } from "./NearestPointHover";
 import { Panel, SegmentedToggle } from "./Panel";
 
 type Scope = "all" | "window";
+
+type Hovered = HoverItem &
+  ({ kind: "point"; point: ProjectedPoint } | { kind: "centre" | "target"; center: ProjectedCenter });
 
 interface ShapeProps {
   cx?: number;
@@ -59,26 +63,34 @@ function CenterShape({ cx, cy, payload, target }: { cx?: number; cy?: number; pa
   );
 }
 
-function PointTooltip({ active, payload }: { active?: boolean; payload?: { payload: ProjectedPoint | ProjectedCenter }[] }) {
-  if (!active || !payload?.length) return null;
-  const p = payload[0].payload;
-  const isPoint = "interval" in p;
+function HoverCard({ item }: { item: Hovered }) {
+  const label = item.kind === "point" ? item.point.label : item.center.label;
+  const title =
+    item.kind === "point"
+      ? `Observation · class ${label}`
+      : item.kind === "centre"
+        ? `Centre P of class ${label}`
+        : `Drift target P2 of class ${label}`;
   return (
-    <div className="rounded-md border border-line bg-surface px-3 py-2 text-xs shadow-sm">
+    <div className="rounded-md border border-line bg-surface px-3 py-2 text-xs whitespace-nowrap shadow-sm">
       <div className="flex items-center gap-1.5 font-semibold text-ink">
-        <ClassSwatch k={p.label} />
-        {isPoint ? `Observation · class ${p.label}` : `Centre of class ${p.label}`}
+        <ClassSwatch k={label} hollow={item.kind === "target"} />
+        {title}
       </div>
-      {isPoint && (
+      {item.kind === "point" && (
         <div className="tabular mt-1 grid grid-cols-[auto_auto] gap-x-3 text-ink-2">
           <span>Interval</span>
-          <span className="text-right text-ink">{p.interval}</span>
+          <span className="text-right text-ink">{item.point.interval}</span>
           <span>Predicted</span>
           <span className="text-right text-ink">
-            {p.prediction == null ? "— (training data)" : p.prediction === p.label ? `${p.prediction} ✓` : `${p.prediction} ✗`}
+            {item.point.prediction == null
+              ? "— (training data)"
+              : item.point.prediction === label
+                ? `${item.point.prediction} ✓`
+                : `${item.point.prediction} ✗`}
           </span>
           <span>In window W</span>
-          <span className="text-right text-ink">{p.in_window ? "Yes" : "No"}</span>
+          <span className="text-right text-ink">{item.point.in_window ? "Yes" : "No"}</span>
         </div>
       )}
     </div>
@@ -95,14 +107,22 @@ function niceDomain(values: number[]): [number, number] {
 
 export function ProjectionChart({ projection, nClasses }: { projection: Projection | null; nClasses: number }) {
   const [scope, setScope] = useState<Scope>("all");
+  // Callback ref: the hover layer portals its tooltip into this positioned wrapper.
+  const [chartBox, setChartBox] = useState<HTMLDivElement | null>(null);
 
-  const { byClass, xDomain, yDomain } = useMemo(() => {
+  const { byClass, hoverItems, xDomain, yDomain } = useMemo(() => {
     const points = (projection?.points ?? []).filter((p) => scope === "all" || p.in_window);
     const groups = Array.from({ length: nClasses }, (_, k) => points.filter((p) => p.label === k));
     const anchors = [...(projection?.centers ?? []), ...(projection?.targets ?? [])];
     const xs = [...points.map((p) => p.x), ...anchors.map((c) => c.x)];
     const ys = [...points.map((p) => p.y), ...anchors.map((c) => c.y)];
-    return { byClass: groups, xDomain: niceDomain(xs), yDomain: niceDomain(ys) };
+    const hoverItems: Hovered[] = [
+      ...points.map((p, i) => ({ key: `p${i}-${p.interval}`, x: p.x, y: p.y, kind: "point" as const, point: p })),
+      // Centres and targets are drawn larger, so give them a bigger hit area.
+      ...(projection?.centers ?? []).map((c) => ({ key: `c${c.label}`, x: c.x, y: c.y, hitBonus: 6, kind: "centre" as const, center: c })),
+      ...(projection?.targets ?? []).map((c) => ({ key: `t${c.label}`, x: c.x, y: c.y, hitBonus: 6, kind: "target" as const, center: c })),
+    ];
+    return { byClass: groups, hoverItems, xDomain: niceDomain(xs), yDomain: niceDomain(ys) };
   }, [projection, scope, nClasses]);
 
   const windowCount = projection?.points.filter((p) => p.in_window).length ?? 0;
@@ -146,7 +166,7 @@ export function ProjectionChart({ projection, nClasses }: { projection: Projecti
           </li>
         )}
       </ul>
-      <div className="h-96">
+      <div ref={setChartBox} className="relative h-96">
         <ResponsiveContainer width="100%" height="100%">
           <ScatterChart margin={{ top: 12, right: 16, bottom: 4, left: -8 }}>
             <CartesianGrid stroke="var(--grid)" strokeWidth={1} />
@@ -172,7 +192,6 @@ export function ProjectionChart({ projection, nClasses }: { projection: Projecti
               tickFormatter={(v: number) => v.toFixed(0)}
               width={44}
             />
-            <Tooltip content={<PointTooltip />} cursor={false} />
             {byClass.map((points, k) => (
               <Scatter
                 key={k}
@@ -189,6 +208,22 @@ export function ProjectionChart({ projection, nClasses }: { projection: Projecti
               isAnimationActive={false}
             />
             <Scatter name="Centres" data={projection?.centers ?? []} shape={<CenterShape />} isAnimationActive={false} />
+            <NearestPointHover
+              items={hoverItems}
+              container={chartBox}
+              renderTooltip={(item) => <HoverCard item={item} />}
+              renderHighlight={(item, cx, cy) => (
+                <circle
+                  cx={cx}
+                  cy={cy}
+                  r={item.kind === "point" ? 6 : 11}
+                  fill="none"
+                  stroke="var(--ink)"
+                  strokeWidth={1.5}
+                  pointerEvents="none"
+                />
+              )}
+            />
           </ScatterChart>
         </ResponsiveContainer>
       </div>
