@@ -37,6 +37,8 @@ export interface TrainingRun {
   reason: string;
   split_method: "temporal" | "random";
   val_from_interval: number | null;
+  /** First interval of the data the run trained on (the window W); the last is `interval`. */
+  data_from_interval: number;
   n_train: number;
   n_val: number;
   /** 0-based index into history of the epoch whose weights were kept. */

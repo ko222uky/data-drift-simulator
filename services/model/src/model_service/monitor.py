@@ -324,6 +324,7 @@ class MonitorEngine:
                     reason=reason,
                     split_method=result.split.method,
                     val_from_interval=result.split.val_from_interval,
+                    data_from_interval=int(intervals.min()),
                     n_train=result.n_train,
                     n_val=result.n_val,
                     best_epoch=result.best_epoch,

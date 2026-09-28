@@ -45,6 +45,9 @@ def test_endpoints(settings):
         latest = client.get("/trainings?limit=1").json()[0]
         assert latest["version"] == 2
         assert latest["split_method"] == "temporal"
+        # Trained on the window W (the last w intervals); validation is its newest part.
+        assert latest["data_from_interval"] == latest["interval"] - engine.config.window_intervals + 1
+        assert latest["data_from_interval"] < latest["val_from_interval"] <= latest["interval"]
         assert latest["config"]["patience"] == 3
 
         summary = client.get("/trainings?include_history=false").json()

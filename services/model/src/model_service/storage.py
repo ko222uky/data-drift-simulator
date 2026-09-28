@@ -66,6 +66,8 @@ class TrainingRun(Base):
     reason: Mapped[str] = mapped_column(String(32))
     split_method: Mapped[str] = mapped_column(String(16))
     val_from_interval: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Interval range of the data it was trained on (the window W); ends at ``interval``.
+    data_from_interval: Mapped[int] = mapped_column(Integer)
     n_train: Mapped[int] = mapped_column(Integer)
     n_val: Mapped[int] = mapped_column(Integer)
     best_epoch: Mapped[int] = mapped_column(Integer)

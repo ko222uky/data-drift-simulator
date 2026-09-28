@@ -84,6 +84,7 @@ export function Dashboard() {
         metrics={metrics.data ?? []}
         events={events.data ?? []}
         threshold={status.data?.config.accuracy_threshold}
+        highlightRun={shownRun ?? versions.find((r) => r.version === shownVersion) ?? null}
       />
 
       <div className="grid gap-4 lg:grid-cols-3">

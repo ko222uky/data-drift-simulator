@@ -97,6 +97,7 @@ class TrainingRunOut(BaseModel):
     reason: str
     split_method: str
     val_from_interval: int | None
+    data_from_interval: int
     n_train: int
     n_val: int
     best_epoch: int

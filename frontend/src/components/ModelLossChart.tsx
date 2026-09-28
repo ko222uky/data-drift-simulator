@@ -6,8 +6,8 @@ import { formatLossTick } from "@/lib/format";
 import type { TrainingRun } from "@/lib/types";
 import { Panel, SegmentedToggle } from "./Panel";
 
-const TRAIN = "var(--series-1)";
-const VAL = "var(--series-2)";
+const TRAIN = "var(--train)";
+const VAL = "var(--validation)";
 
 function LineKey({ color }: { color: string }) {
   return (
@@ -115,7 +115,7 @@ export function ModelLossChart({
   return (
     <Panel
       title="Model version · training vs. validation loss"
-      subtitle={`Per-epoch curves for one kept model version (${versions.length} this session). Pick an older version to compare how it trained.`}
+      subtitle={`Per-epoch curves for one kept model version (${versions.length} this session). Pick an older version to compare how it trained; its training and validation intervals are highlighted on the accuracy chart.`}
       actions={picker}
     >
       {!run ? (
