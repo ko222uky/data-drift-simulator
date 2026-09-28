@@ -232,6 +232,8 @@ docker compose restart mlflow
 | Symptom | Check |
 |---|---|
 | `git clone` / `ssh -T git@github.com`: `Permission denied (publickey)` | GitHub doesn't know the key. Check the repo's Deploy keys list shows the same fingerprint as `ssh-keygen -lf ~/.ssh/github_deploy.pub`; re-paste it as one line if not. (A key added to the wrong repo or to your account authenticates instead.) |
+| Actions `deploy` job: `Permission denied (publickey)` | GitHub's `DEPLOY_SSH_KEY` isn't the key in the droplet's `authorized_keys`. The **Configure SSH** step prints the loaded key's fingerprint: compare it with `ssh-keygen -lf` of the CI line in `/root/.ssh/authorized_keys`. Windows line endings are stripped automatically; if the fingerprints differ, rotate the key (see "Automatic deploys") |
+| Actions `deploy` job: `DEPLOY_SSH_KEY is not a usable private key` | The secret is incomplete, usually a partial paste. Re-paste the whole private key, including the `BEGIN` and `END` lines |
 | Actions `deploy` job: `Host key verification failed` | `DEPLOY_KNOWN_HOSTS` doesn't match the droplet (for example after a rebuild). Re-verify the fingerprint and update the secret |
 | Actions `deploy` job: `is not on origin/main; refusing to deploy` | The run wasn't for a commit on `main`; only `main` deploys |
 | Browser shows a certificate error | DNS must resolve to the droplet *before* the first start; `docker compose logs gateway` shows the ACME errors |

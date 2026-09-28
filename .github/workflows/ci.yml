@@ -74,15 +74,24 @@ jobs:
           DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
         run: |
           install -m 700 -d ~/.ssh
-          echo "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          # Secrets pasted in a browser can carry Windows line endings (CRLF). OpenSSH then
+          # refuses to load the key, offers none, and the droplet answers "Permission denied".
+          echo "$DEPLOY_SSH_KEY" | tr -d '\r' > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
+          # Fail here, with a clear message, if the secret still isn't a usable key.
+          if ! ssh-keygen -y -f ~/.ssh/deploy_key > /dev/null 2> /tmp/keycheck; then
+            echo "::error title=DEPLOY_SSH_KEY is not a usable private key::$(cat /tmp/keycheck). Re-paste the whole private key, including the BEGIN and END lines."
+            exit 1
+          fi
+          # The fingerprint is public: compare it with the key in the droplet's authorized_keys.
+          echo "Deploy key fingerprint: $(ssh-keygen -lf ~/.ssh/deploy_key | cut -d' ' -f2)"
           # Pinned host key: the job refuses to talk to anything but the real droplet.
-          echo "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          echo "$DEPLOY_KNOWN_HOSTS" | tr -d '\r' > ~/.ssh/known_hosts
       - name: Deploy ${{ github.sha }}
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
         run: >
-          ssh -i ~/.ssh/deploy_key
+          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes
           -o BatchMode=yes -o StrictHostKeyChecking=yes -o ServerAliveInterval=30
           "root@$DEPLOY_HOST" "$GITHUB_SHA"
       - name: Smoke test
