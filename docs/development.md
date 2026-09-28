@@ -48,4 +48,5 @@ For MLflow, run `mlflow server --static-prefix /mlflow --port 5000` and set
   (`MODEL_`, `AUTH_`), and an app factory (`create_app`) run with `uvicorn --factory`.
 - A frontend type change that mirrors an API change goes in `frontend/src/lib/types.ts`.
 - CI (`.github/workflows/ci.yml`) runs every service's tests, the frontend lint and build,
-  and validates the compose and Caddy configs.
+  and validates the compose and Caddy configs. Once every check passes on `main`, it deploys
+  to the droplet (see `docs/deployment.md`, "Automatic deploys").
