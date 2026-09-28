@@ -81,6 +81,7 @@ class ServiceSettings(BaseSettings):
     mlflow_experiment: str = "drift-monitoring"
     registered_model_name: str = "drift-classifier"
     autostart: bool = Field(True, description="Start the interval loop when the service boots")
+    auto_retrain: bool = Field(True, description="Retrain automatically on threshold breaches (can be paused at runtime)")
 
     # Initial values for the runtime policy (MonitorConfig).
     batch_size: int = 100

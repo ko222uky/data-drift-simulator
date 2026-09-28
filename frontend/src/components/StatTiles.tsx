@@ -37,14 +37,16 @@ export function StatTiles({ status }: { status: Status | null }) {
       <Tile
         label="Model state"
         footer={
-          status?.phase === "cooldown" && status.retry_at_interval != null
+          status?.retrain_suppressed
+            ? "Retrain due, held: auto-retrain is paused"
+            : status?.phase === "cooldown" && status.retry_at_interval != null
             ? `Next retry at interval ${status.retry_at_interval}`
             : status && status.consecutive_breaches > 0
               ? `${status.consecutive_breaches} of ${status.config.breach_intervals} breaches before retrain`
               : phase.help
         }
       >
-        <div className="flex items-center gap-2 text-lg font-semibold">
+        <div className="flex flex-wrap items-center gap-2 text-lg font-semibold">
           <span
             aria-hidden="true"
             className="grid size-6 place-items-center rounded-full text-sm text-white"
@@ -54,6 +56,9 @@ export function StatTiles({ status }: { status: Status | null }) {
           </span>
           {phase.label}
           {status?.paused && <span className="rounded bg-wash px-1.5 py-0.5 text-xs font-medium text-ink-2">Paused</span>}
+          {status && !status.auto_retrain && (
+            <span className="rounded bg-wash px-1.5 py-0.5 text-xs font-medium text-ink-2">Auto-retrain off</span>
+          )}
         </div>
       </Tile>
 

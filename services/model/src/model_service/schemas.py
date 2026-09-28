@@ -28,6 +28,8 @@ class Status(BaseModel):
     interval: int
     phase: Phase
     paused: bool
+    auto_retrain: bool
+    retrain_suppressed: bool
     last_accuracy: float | None
     consecutive_breaches: int
     retry_at_interval: int | None

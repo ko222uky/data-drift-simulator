@@ -46,7 +46,7 @@ or SQL. Only the gateway publishes ports.
 | Who | Can |
 |---|---|
 | Anyone | View the dashboard (all `GET /api/model/*`) |
-| Signed-in operator | Trigger drift, retrain, pause/resume, reset, edit the policy; open MLflow |
+| Signed-in operator | Trigger drift, retrain, pause/resume, pause automatic retraining, reset, edit the policy and training parameters; open MLflow |
 
 The policy lives in one place, the `Caddyfile`. Backend services contain no auth code of
 their own; they trust the gateway, which is the only way to reach them.
@@ -83,7 +83,7 @@ sequenceDiagram
         L->>L: predict with deployed model
         L->>DB: insert rows + accuracy, prune rows older than 2w
         L->>ML: log live_accuracy @ step t
-        alt accuracy < threshold for i intervals and no cool-down
+        alt accuracy < threshold for i intervals, no cool-down, auto-retrain on
             L->>DB: load window W (last w intervals)
             L->>L: train v(k+1) outside the lock (hold out newest intervals, AdamW, early stopping)
             L->>ML: run train-v(k+1), register model, move @champion

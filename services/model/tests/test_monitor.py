@@ -82,3 +82,58 @@ def test_projection_view_marks_window(engine):
     in_window = {p["interval"] for p in view["points"] if p["in_window"]}
     assert min(in_window) == view["window_start"]
     assert len(view["centers"]) == engine.settings.n_classes
+
+
+def _breach_every_interval(engine):
+    # With noisy classes, a near-perfect threshold makes every interval a breach.
+    engine.update_config(ConfigUpdate(accuracy_threshold=0.99, breach_intervals=2))
+    engine.retry_at_interval = None  # ignore any cool-down from the (noisy) initial model
+
+
+def test_paused_auto_retrain_counts_breaches_but_does_not_retrain(noisy_engine):
+    engine = noisy_engine
+    engine.set_auto_retrain(False)
+    _breach_every_interval(engine)
+    for _ in range(5):
+        engine.step()
+    assert engine.deployed.version == 1
+    assert engine.consecutive_breaches == 5
+    status = engine.status()
+    assert status["auto_retrain"] is False
+    assert status["retrain_suppressed"] is True
+    kinds = [e.kind for e in engine.store.recent_events(50)]
+    assert kinds.count("retrain_suppressed") == 1  # logged once per breach streak, not every interval
+    assert "retrain_triggered" not in kinds
+
+
+def test_resuming_runs_a_due_retrain_on_the_next_interval(noisy_engine):
+    engine = noisy_engine
+    engine.set_auto_retrain(False)
+    _breach_every_interval(engine)
+    for _ in range(3):
+        engine.step()
+    assert engine.deployed.version == 1
+    engine.set_auto_retrain(True)
+    assert "will run next interval" in engine.store.recent_events(1)[0].message
+    engine.step()
+    assert engine.deployed.version == 2
+    assert engine.deployed.reason == "threshold"
+    assert engine.status()["retrain_suppressed"] is False
+
+
+def test_manual_retrain_still_works_while_auto_retrain_is_paused(engine):
+    engine.set_auto_retrain(False)
+    engine.step()
+    engine.request("retrain")
+    engine.run_pending()
+    assert engine.deployed.version == 2
+    assert engine.deployed.reason == "manual"
+
+
+def test_auto_retrain_toggle_is_idempotent_and_logged(engine):
+    engine.set_auto_retrain(False)
+    engine.set_auto_retrain(False)
+    engine.set_auto_retrain(True)
+    kinds = [e.kind for e in engine.store.recent_events(10)]
+    assert kinds.count("auto_retrain_paused") == 1
+    assert kinds.count("auto_retrain_resumed") == 1

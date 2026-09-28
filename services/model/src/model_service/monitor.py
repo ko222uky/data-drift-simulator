@@ -8,7 +8,9 @@ Every interval (time t -> t+1):
    logged to MLflow.
 3. If accuracy is below the threshold for ``i`` consecutive intervals -- and we are not
    inside a retry cool-down -- the model is retrained on the window W (the last ``w``
-   intervals of data) and redeployed.
+   intervals of data) and redeployed. An operator can pause this automatic retraining;
+   breaches are still counted, and a retrain that came due while paused runs on the
+   first interval after resuming.
 4. If the retrained model's validation accuracy is still below the threshold, the next
    retrain may not happen until ``I`` intervals have passed.
 
@@ -67,6 +69,8 @@ class MonitorEngine:
         self.session_id = ""
         self.interval = 0
         self.paused = False
+        self.auto_retrain = settings.auto_retrain
+        self._suppression_logged = False  # one "retrain_suppressed" event per breach streak
         self.training = False
         self.consecutive_breaches = 0
         self.retry_at_interval: int | None = None
@@ -165,6 +169,21 @@ class MonitorEngine:
                 self.store.add_event(self.interval, "paused" if paused else "resumed", "Simulation " + ("paused" if paused else "resumed"))
         self._wake.set()
 
+    def set_auto_retrain(self, enabled: bool) -> None:
+        """Pause or resume threshold-triggered retraining. Manual retrains are unaffected."""
+        with self.lock:
+            if self.auto_retrain == enabled:
+                return
+            self.auto_retrain = enabled
+            self._suppression_logged = False
+            message = (
+                "Automatic retraining resumed" + (" (a retrain is due and will run next interval)" if self._retrain_due() else "")
+                if enabled
+                else "Automatic retraining paused; breaches are still counted"
+            )
+            self.store.add_event(self.interval, "auto_retrain_resumed" if enabled else "auto_retrain_paused", message)
+            self.tracker.log_config(self.interval, {"auto_retrain": enabled})
+
     def update_config(self, update: ConfigUpdate) -> MonitorConfig:
         with self.lock:
             changes = update.model_dump(exclude_none=True)
@@ -233,8 +252,19 @@ class MonitorEngine:
 
             breached = result.accuracy < cfg.accuracy_threshold
             self.consecutive_breaches = self.consecutive_breaches + 1 if breached else 0
-            in_cooldown = self.retry_at_interval is not None and t < self.retry_at_interval
-            should_retrain = self.consecutive_breaches >= cfg.breach_intervals and not in_cooldown
+            if not breached:
+                self._suppression_logged = False
+            due = self._retrain_due()
+            should_retrain = due and self.auto_retrain
+            if due and not self.auto_retrain and not self._suppression_logged:
+                self._suppression_logged = True
+                self.store.add_event(
+                    t,
+                    "retrain_suppressed",
+                    f"Retrain due (accuracy below {cfg.accuracy_threshold:.2f} for {self.consecutive_breaches} intervals) "
+                    "but automatic retraining is paused",
+                    accuracy=result.accuracy,
+                )
             if should_retrain:
                 self.store.add_event(
                     t,
@@ -245,6 +275,11 @@ class MonitorEngine:
 
         if should_retrain:
             self._retrain_on_window(reason="threshold")
+
+    def _retrain_due(self) -> bool:
+        """The policy calls for a retrain: enough consecutive breaches, and no cool-down."""
+        in_cooldown = self.retry_at_interval is not None and self.interval < self.retry_at_interval
+        return self.consecutive_breaches >= self.config.breach_intervals and not in_cooldown
 
     # -- training --------------------------------------------------------------------
 
@@ -317,6 +352,7 @@ class MonitorEngine:
                 mlflow_run_id=run_id,
             )
             self.consecutive_breaches = 0
+            self._suppression_logged = False
             threshold = self.config.accuracy_threshold
             recovered = result.val_accuracy >= threshold
             self.retry_at_interval = None if recovered else t + self.config.retry_intervals
@@ -362,6 +398,9 @@ class MonitorEngine:
                 "interval": self.interval,
                 "phase": self.phase,
                 "paused": self.paused,
+                "auto_retrain": self.auto_retrain,
+                # A retrain the policy calls for but that is being held back by the pause.
+                "retrain_suppressed": not self.auto_retrain and self.deployed is not None and self._retrain_due(),
                 "last_accuracy": self.last_accuracy,
                 "consecutive_breaches": self.consecutive_breaches,
                 "retry_at_interval": self.retry_at_interval,

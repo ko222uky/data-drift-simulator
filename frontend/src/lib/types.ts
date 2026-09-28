@@ -64,6 +64,10 @@ export interface Status {
   interval: number;
   phase: Phase;
   paused: boolean;
+  /** Threshold-triggered retraining is enabled (manual retrains always work). */
+  auto_retrain: boolean;
+  /** The policy calls for a retrain, but it is held because auto-retrain is paused. */
+  retrain_suppressed: boolean;
   last_accuracy: number | null;
   consecutive_breaches: number;
   retry_at_interval: number | null;

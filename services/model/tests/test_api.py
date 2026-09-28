@@ -44,6 +44,12 @@ def test_endpoints(settings):
         assert latest["config"]["patience"] == 3
 
         assert client.post("/retrain").status_code == 202
+        assert client.get("/status").json()["auto_retrain"] is True
+        assert client.post("/auto-retrain/pause").status_code == 200
+        assert client.get("/status").json()["auto_retrain"] is False
+        assert client.post("/auto-retrain/resume").status_code == 200
+        assert client.get("/status").json()["auto_retrain"] is True
+
         assert client.post("/pause").status_code == 200
         assert client.get("/status").json()["paused"] is True
         kinds = [e["kind"] for e in client.get("/events").json()]
