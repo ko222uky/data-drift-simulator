@@ -51,6 +51,8 @@ export const modelApi = {
   retrain: () => post<{ detail: string }>("/api/model/retrain"),
   pause: () => post<{ detail: string }>("/api/model/pause"),
   resume: () => post<{ detail: string }>("/api/model/resume"),
+  pauseAutoRetrain: () => post<{ detail: string }>("/api/model/auto-retrain/pause"),
+  resumeAutoRetrain: () => post<{ detail: string }>("/api/model/auto-retrain/resume"),
   reset: () => post<{ detail: string }>("/api/model/reset"),
 };
 

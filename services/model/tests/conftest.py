@@ -28,3 +28,12 @@ def engine(settings) -> MonitorEngine:
     eng = MonitorEngine(settings, Store(settings.database_url), Tracker("", "test", "test-model"))
     eng.initialize()
     return eng
+
+
+@pytest.fixture
+def noisy_engine(settings) -> MonitorEngine:
+    """Heavily overlapping classes: accuracy stays well below 1, so breaches are reliable."""
+    noisy = settings.model_copy(update={"noise_std": 3.0})
+    eng = MonitorEngine(noisy, Store(noisy.database_url), Tracker("", "test", "test-model"))
+    eng.initialize()
+    return eng

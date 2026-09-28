@@ -7,7 +7,7 @@ import type { MonitorConfig, Status } from "@/lib/types";
 import { useOperatorAction } from "@/lib/useOperatorAction";
 import { ConfigForm, type FieldSpec } from "./ConfigForm";
 import { Panel } from "./Panel";
-import { Button, StatusMessage } from "./ui";
+import { Button, StatusMessage, Switch } from "./ui";
 
 const FIELDS: FieldSpec<MonitorConfig>[] = [
   { key: "accuracy_threshold", label: "Accuracy threshold", step: 0.01, min: 0.01, max: 0.99 },
@@ -37,6 +37,7 @@ export function Controls({ status, onChange }: { status: Status | null; onChange
   }
 
   const paused = status?.paused ?? false;
+  const autoRetrain = status?.auto_retrain ?? true;
 
   return (
     <Panel title="Controls" subtitle={`Signed in as ${user}`}>
@@ -63,6 +64,32 @@ export function Controls({ status, onChange }: { status: Status | null; onChange
         >
           Reset session
         </Button>
+      </div>
+
+      <div className="mt-4 flex items-start justify-between gap-3 rounded-md border border-line px-3 py-2.5">
+        <div className="min-w-0">
+          <div id="auto-retrain-label" className="text-sm font-medium text-ink">
+            Automatic retraining
+          </div>
+          <p className="text-xs text-ink-2">
+            {autoRetrain
+              ? "Retrains when accuracy stays below the threshold."
+              : status?.retrain_suppressed
+                ? "Paused. A retrain is due and will run on the next interval after you resume."
+                : "Paused. Breaches are still counted; Retrain now still works."}
+          </p>
+        </div>
+        <Switch
+          checked={autoRetrain}
+          disabled={busy || !status}
+          labelledBy="auto-retrain-label"
+          onChange={(on) =>
+            run(
+              on ? modelApi.resumeAutoRetrain : modelApi.pauseAutoRetrain,
+              on ? "Automatic retraining resumed" : "Automatic retraining paused",
+            )
+          }
+        />
       </div>
 
       {status && (

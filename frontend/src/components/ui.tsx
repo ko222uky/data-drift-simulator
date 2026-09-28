@@ -30,6 +30,38 @@ export function Button({
   );
 }
 
+export function Switch({
+  checked,
+  onChange,
+  disabled,
+  labelledBy,
+}: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  disabled?: boolean;
+  labelledBy: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-labelledby={labelledBy}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition disabled:cursor-not-allowed disabled:opacity-50 ${
+        checked ? "bg-accent" : "bg-axis"
+      }`}
+    >
+      <span
+        aria-hidden="true"
+        className={`inline-block size-5 rounded-full bg-white shadow transition-transform ${checked ? "translate-x-5.5" : "translate-x-0.5"}`}
+      />
+      <span className="sr-only">{checked ? "On" : "Off"}</span>
+    </button>
+  );
+}
+
 export function StatusMessage({ message }: { message: ActionMessage | null }) {
   if (!message) return null;
   return (

@@ -26,7 +26,8 @@ Each interval `t → t+1`:
 1. Generate `n` observations around the current centres (moving toward `P2` if drifting).
 2. Predict with the deployed model; store the observations, accuracy and loss; log them to MLflow.
 3. Drop observations older than `2w` intervals. That keeps the window `W` plus `w` older intervals for the plot.
-4. If accuracy < threshold for `i` consecutive intervals, and no retry cool-down is active:
+4. If accuracy < threshold for `i` consecutive intervals, no retry cool-down is active, and
+   automatic retraining isn't paused:
    retrain on `W` (the last `w` intervals), register the new model in MLflow, and hot-swap it.
 5. If the new model's validation accuracy is still below the threshold, no retrain may start
    for another `I` intervals.
@@ -53,6 +54,7 @@ GET routes are public; everything else is protected by the gateway (see `service
 | POST | `/drift` | Start drifting to new random centres |
 | POST | `/retrain` | Queue a manual retrain on W |
 | POST | `/pause`, `/resume` | Pause / resume the interval loop |
+| POST | `/auto-retrain/pause`, `/auto-retrain/resume` | Pause / resume threshold-triggered retraining (see below) |
 | POST | `/reset` | Start a new session (new data, new v1 model) |
 
 ## Configuration
@@ -71,10 +73,27 @@ Fixed at start-up (restart to change):
 | `MODEL_MLFLOW_TRACKING_URI` | *(empty = disabled)* | e.g. `http://mlflow:5000/mlflow` |
 | `MODEL_MLFLOW_EXPERIMENT` | `drift-monitoring` | |
 | `MODEL_REGISTERED_MODEL_NAME` | `drift-classifier` | |
+| `MODEL_AUTO_RETRAIN` | `true` | Start with automatic retraining on (switchable at runtime) |
 
 Initial runtime policy, which you can change live from the dashboard: `MODEL_BATCH_SIZE` (n=100),
 `MODEL_INTERVAL_SECONDS` (5), `MODEL_ACCURACY_THRESHOLD` (0.85), `MODEL_BREACH_INTERVALS`
 (i=3), `MODEL_WINDOW_INTERVALS` (w=10), `MODEL_RETRY_INTERVALS` (I=5), `MODEL_DRIFT_RATE` (r=0.05).
+
+## Pausing automatic retraining
+
+`POST /auto-retrain/pause` (the **Automatic retraining** switch on the dashboard) stops
+threshold-triggered retrains only:
+
+- The simulation keeps running, and breaches are still counted.
+- When a retrain comes due, it's held and a single `retrain_suppressed` event is logged
+  for that breach streak. `/status` reports `retrain_suppressed: true` while it's held.
+- Manual retrains (`POST /retrain`) still work.
+- After `POST /auto-retrain/resume`, a held retrain runs on the next interval if accuracy is
+  still below the threshold.
+
+This lets you watch a drifting model degrade without intervention, or compare manual and
+automatic retraining. The switch persists across session resets but reverts to
+`MODEL_AUTO_RETRAIN` when the service restarts.
 
 ## Training
 

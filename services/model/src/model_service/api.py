@@ -115,6 +115,18 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
         engine(request).set_paused(False)
         return Accepted(detail="resumed")
 
+    @app.post("/auto-retrain/pause", response_model=Accepted, tags=["control"])
+    def pause_auto_retrain(request: Request):
+        """Stop threshold-triggered retraining. The simulation and manual retrains continue."""
+        engine(request).set_auto_retrain(False)
+        return Accepted(detail="automatic retraining paused")
+
+    @app.post("/auto-retrain/resume", response_model=Accepted, tags=["control"])
+    def resume_auto_retrain(request: Request):
+        """Re-enable threshold-triggered retraining; a retrain that is already due runs next interval."""
+        engine(request).set_auto_retrain(True)
+        return Accepted(detail="automatic retraining resumed")
+
     @app.post("/reset", response_model=Accepted, status_code=202, tags=["control"])
     def reset(request: Request):
         engine(request).request("reset")
