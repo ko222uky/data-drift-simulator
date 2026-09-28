@@ -14,6 +14,7 @@ WORKDIR /home/mlflow
 COPY --chmod=755 entrypoint.sh /usr/local/bin/entrypoint.sh
 
 EXPOSE 5000
-HEALTHCHECK --interval=15s --timeout=3s --start-period=60s \
+# First boot runs DB migrations and worker start-up, which takes 1-2 min on a 2 vCPU droplet.
+HEALTHCHECK --interval=15s --timeout=3s --start-period=180s --retries=5 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/mlflow/health')"
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

@@ -16,28 +16,91 @@ automatically.
 
 HTTPS needs a hostname:
 
-- **Your own domain:** create an `A` record (for example `demo.example.com`) pointing at the
-  droplet's IPv4 address.
+- **Your own domain:** use a subdomain such as `datadrift.example.com` and create an `A` record
+  for it at whichever provider hosts the domain's DNS:
+
+  | Type | Name | Value | TTL |
+  |---|---|---|---|
+  | `A` | `datadrift` | droplet IPv4 (or its Reserved IP) | 300 |
+
+  - **Cloudflare:** set the record's proxy status to **DNS only** (grey cloud). If it's
+    proxied, visitors reach Cloudflare instead of the droplet, and Caddy's Let's Encrypt
+    certificate can fail. `nslookup` should return the droplet's IP, not a Cloudflare
+    `104.x` or `172.64–71.x` address.
+  - **Optional Reserved IP** (DigitalOcean → Networking → Reserved IPs): free while
+    attached. Point DNS at it, and a rebuilt droplet can take over the same address.
+  - Only the subdomain needs a record; the bare domain can stay empty.
+  - Don't add an `AAAA` (IPv6) record until HTTPS works over IPv4. Let's Encrypt prefers
+    IPv6, and a broken IPv6 path blocks certificate issuance.
 - **No domain:** use `sslip.io`, which resolves `<ip-with-dashes>.sslip.io` to that IP. For
   example, `203-0-113-10.sslip.io` works with no DNS setup at all.
 
-## 3. Provision
+The name must resolve **before** the first deploy.
+
+## 3. Provision and fetch the code
+
+Run these from your own machine. Stream `provision.sh` to the droplet over SSH; the
+droplet doesn't need the code for this step:
 
 ```bash
-ssh root@<droplet-ip>
-git clone <your-repo-url> /opt/mlops-demo
-bash /opt/mlops-demo/deploy/droplet/provision.sh
+ssh root@<droplet-ip> 'bash -s' < deploy/droplet/provision.sh
 ```
 
 `provision.sh` does the following:
 
 - Installs Docker Engine and the compose plugin.
 - Adds 4 GB of swap.
-- Sets up the firewall to allow SSH, 80 and 443 only.
+- Sets up the firewall to allow SSH, 80 and 443 only (IPv4 and IPv6).
 - Turns on unattended security upgrades.
-- Creates `/opt/mlops-demo/.env` with generated passwords and secrets.
 
 It's safe to re-run.
+
+### Private repository: give the droplet a read-only deploy key
+
+A private repo can't be cloned anonymously. A **deploy key** is an SSH key that GitHub
+accepts for **one repository, read-only**, so the droplet can clone and later `git pull`
+without your personal credentials. The key pair is created **on the droplet**: the private
+key never leaves it, and only the public half goes to GitHub.
+
+1. **On the droplet,** create the key and pin GitHub's host key. The fingerprint check
+   guards against connecting to an impostor server; compare it with the fingerprint in
+   [GitHub's published SSH key fingerprints](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints):
+
+   ```bash
+   ssh root@<droplet-ip>
+   ssh-keygen -t ed25519 -N "" -C "deploy@<your-hostname>" -f ~/.ssh/github_deploy
+   ssh-keyscan -t ed25519 github.com > /tmp/gh_key
+   ssh-keygen -lf /tmp/gh_key   # must print SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU
+   cat /tmp/gh_key >> ~/.ssh/known_hosts
+   printf 'Host github.com
+  User git
+  IdentityFile ~/.ssh/github_deploy
+  IdentitiesOnly yes
+' >> ~/.ssh/config
+   chmod 600 ~/.ssh/config
+   cat ~/.ssh/github_deploy.pub   # the public key: copy this single line
+   ```
+
+2. **On GitHub,** open the repo → **Settings → Deploy keys → Add deploy key**. Paste the
+   public key as one line, and leave **Allow write access unticked**.
+3. **Check** that GitHub accepts it, then clone:
+
+   ```bash
+   ssh -T git@github.com   # "Hi <owner>/<repo>! You've successfully authenticated…"
+   git clone git@github.com:<owner>/<repo>.git /opt/mlops-demo
+   ```
+
+To revoke access later, delete the key on GitHub. For a **public** repo, skip the deploy key
+and run `git clone https://github.com/<owner>/<repo>.git /opt/mlops-demo`.
+
+### Create `.env`
+
+Run `provision.sh` once more, now that the code is in place. This time it also creates
+`/opt/mlops-demo/.env` with generated passwords and secrets (mode 600):
+
+```bash
+bash /opt/mlops-demo/deploy/droplet/provision.sh
+```
 
 ## 4. Configure
 
@@ -97,10 +160,12 @@ docker compose restart mlflow
 
 | Symptom | Check |
 |---|---|
+| `git clone` / `ssh -T git@github.com`: `Permission denied (publickey)` | GitHub doesn't know the key. Check the repo's Deploy keys list shows the same fingerprint as `ssh-keygen -lf ~/.ssh/github_deploy.pub`; re-paste it as one line if not. (A key added to the wrong repo or to your account authenticates instead.) |
 | Browser shows a certificate error | DNS must resolve to the droplet *before* the first start; `docker compose logs gateway` shows the ACME errors |
 | Login succeeds, but controls still say "Sign in" | With HTTPS, `COOKIE_SECURE=true`. On plain HTTP it must be `false`, or the browser drops the cookie |
 | MLflow shows `Invalid Host header` / blocked requests | `PUBLIC_HOST` / `PUBLIC_ORIGIN` must match the address in the browser |
 | Build killed / exit 137 | Out of memory. Check `swapon --show`, or resize the droplet |
+| `dependency failed to start: container … is unhealthy` | A service took longer to start than its health check allows, most often MLflow on first boot (migrations). Check `docker compose ps`; once it reports `healthy`, re-run `deploy.sh` (the build is cached, so it only starts what's missing) |
 | Dashboard shows "Model service unreachable" | `docker compose logs model`; the model waits for postgres and mlflow to report healthy |
 
 ## Security notes
