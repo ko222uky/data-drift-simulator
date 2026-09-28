@@ -45,44 +45,97 @@ Also included in the UI application is a visualization of the M-dimensional data
 
 # Architecture
 
-The basic architecture:
-
 ```mermaid
-
-    flowchart LR
-    subgraph Client
-        UI[Web App <br> Model Monitoring]
-    end
-    subgraph Services
-        API[API gateway]
-        Auth[Auth service]
-        Models[Model service]
-        MLFlow[MLFlow Service]
+flowchart LR
+    subgraph Client["Client"]
+        UI["Browser<br/>dashboard + MLflow UI"]
     end
 
-    UI --> API
+    subgraph Host["DigitalOcean droplet · Docker Compose · network mlops-demo_default"]
+        GW["gateway<br/>Caddy · TLS · routing · forward-auth"]
+        FE["frontend<br/>Next.js server"]
+        AUTH["auth<br/>FastAPI · JWT sessions"]
+        MODEL["model<br/>FastAPI · PyTorch"]
+        MLF["mlflow<br/>tracking server + registry"]
+        PG[("postgres<br/>DBs: model, mlflow<br/>volume: pgdata")]
+        ART[("volume<br/>mlflow_artifacts")]
+        CERTS[("volume<br/>caddy_data")]
+    end
 
-    API --> Auth
-    API --> Models
-    API --> MLFlow
-    Models --> DB
-    Auth -. token .-> UI
+    LE["Let's Encrypt"]
 
-
+    UI -- "HTTPS :443 (HTTP :80 redirects)" --> GW
+    GW -- "/ (pages)" --> FE
+    GW -- "/api/auth/* (login, logout, me)" --> AUTH
+    GW -. "forward-auth /verify<br/>before writes and /mlflow" .-> AUTH
+    GW -- "/api/model/*" --> MODEL
+    GW -- "/mlflow/*" --> MLF
+    UI -. "session cookie (JWT)<br/>issued by auth via gateway" .- AUTH
+    MODEL -- "runs, metrics,<br/>registered models" --> MLF
+    MODEL -- "SQL: window, metrics,<br/>events, training runs" --> PG
+    MLF -- "SQL: backend store" --> PG
+    MLF -- "model artifacts" --> ART
+    GW -- "TLS certificates" --> CERTS
+    GW -. "ACME certificate issue/renewal" .-> LE
 ```
+
+**Architecture type: containerized microservices behind an API gateway.** The system is split
+into single-purpose services that talk only over HTTP (and SQL to the database). None
+imports another's code, and each has its own directory, dependencies, image, tests and
+README. The **gateway** is the single entry point, using the *edge gateway* pattern: it
+terminates TLS, routes by path, and enforces authentication centrally with *forward-auth*,
+asking the auth service to verify the session before any write and before MLflow. The
+backend services therefore contain no auth code, and they aren't reachable from outside.
+
+- **The browser only ever talks to the gateway.** The Next.js server renders the dashboard,
+  and the dashboard then calls `/api/...` on the same origin. The frontend server never
+  calls the backend itself.
+- **State lives in two places:** Postgres (the `model` and `mlflow` databases) and the
+  `mlflow_artifacts` volume.
+- **The model service holds one live, in-memory simulation.** It runs as a single
+  process, deliberately not replicated.
+- **The other services are stateless** and could be scaled out behind the gateway.
+
+**Containerization.** `docker-compose.yml` defines six containers on one private bridge
+network (`mlops-demo_default`), where services find each other by name (for example
+`http://mlflow:5000`):
+
+| Container | Image | Built from |
+|---|---|---|
+| `gateway` | `caddy:2.11-alpine` (official) | configured by `services/gateway/Caddyfile`, mounted read-only |
+| `frontend` | built | `frontend/Dockerfile`: 3-stage `node:24-alpine` build, Next.js `standalone` output |
+| `auth` | built | `services/auth/Dockerfile`: `python:3.13-slim` + `uv`, locked dependencies |
+| `model` | built | `services/model/Dockerfile`: `python:3.13-slim` + `uv`, CPU-only PyTorch |
+| `mlflow` | built | `services/mlflow/Dockerfile`: `python:3.13-slim`, pinned `mlflow==3.16.1` |
+| `postgres` | `postgres:17-alpine` (official) | init script creates the `mlflow` database |
+
+- **Only the gateway publishes ports** (80, 443 and UDP 443 for HTTP/3). Everything else,
+  Postgres included, is reachable only on the internal network.
+- **Every custom image runs as a non-root user.**
+- **Health checks:** each service has a `HEALTHCHECK`, and Compose starts services in
+  dependency order with `depends_on: condition: service_healthy`
+  (postgres → mlflow → model → gateway). Every container uses `restart: unless-stopped`.
+- **Configuration and secrets** come from a `.env` file (mode 600 on the server) through
+  Compose variable substitution. Nothing secret is baked into an image.
+- **Persistent data** lives in named volumes that survive rebuilds and redeploys:
+  `pgdata`, `mlflow_artifacts`, `caddy_data` (TLS certificates) and `caddy_config`.
+- **The same Compose file runs locally** (`http://localhost`) and on the droplet (automatic
+  HTTPS). The droplet is updated by GitHub Actions after CI passes on `main`; see
+  [docs/deployment.md](docs/deployment.md).
+
 # Implementation
 
-Each box in the architecture diagram is a separate service with its own directory,
-Dockerfile, tests and README:
+Each service in the architecture diagram has its own directory, image, tests (where it has
+code) and README:
 
-| Diagram box | Service | Stack | Docs |
+| Compose service | Directory | Stack | Docs |
 |---|---|---|---|
-| Web App | `frontend/` | Next.js 16 · React 19 · Tailwind · Recharts | [README](frontend/README.md) |
-| API gateway | `services/gateway/` | Caddy 2 (TLS, routing, forward-auth) | [README](services/gateway/README.md) |
-| Auth service | `services/auth/` | FastAPI · JWT (HttpOnly cookie) | [README](services/auth/README.md) |
-| Model service | `services/model/` | FastAPI · PyTorch · SQLAlchemy | [README](services/model/README.md) |
-| MLFlow Service | `services/mlflow/` | MLflow 3 tracking server + model registry | [README](services/mlflow/README.md) |
-| DB | `services/postgres/` | Postgres 17 (`model` and `mlflow` databases) | [README](services/postgres/README.md) |
+| `frontend` | `frontend/` | Next.js 16 · React 19 · Tailwind · Recharts | [README](frontend/README.md) |
+| `gateway` | `services/gateway/` | Caddy 2 (TLS, routing, forward-auth) | [README](services/gateway/README.md) |
+| `auth` | `services/auth/` | FastAPI · JWT (HttpOnly cookie) | [README](services/auth/README.md) |
+| `model` | `services/model/` | FastAPI · PyTorch · SQLAlchemy | [README](services/model/README.md) |
+| `mlflow` | `services/mlflow/` | MLflow 3 tracking server + model registry | [README](services/mlflow/README.md) |
+| `postgres` | `services/postgres/` | Postgres 17 (`model` and `mlflow` databases) | [README](services/postgres/README.md) |
 
 The dashboard is public. Triggering drift, retraining, changing the policy and opening the
 MLflow UI require an operator sign-in. See [docs/architecture.md](docs/architecture.md) for
