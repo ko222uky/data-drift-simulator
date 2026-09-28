@@ -128,3 +128,15 @@ bash /opt/mlops-demo/deploy/droplet/deploy.sh
 The full guide covers sizing, DNS without a domain, backups and troubleshooting:
 [docs/deployment.md](docs/deployment.md). For per-service workflows, see
 [docs/development.md](docs/development.md).
+
+## To be Added:
+
+* Highlighted / colored windows in the linechart showing which intervals were used for training and which were used for validation. Highlights do not conflict with the data drift window in the line chart.
+
+* In the training params, include the train:test split ratio as a parameter. Also allow selection of using a randomized split or using the recent intervals for validation.
+
+* Add a toggle for a continuous random drift to the data points, using the data drift rate parameter provided in the controls.
+
+* Add another widget to view train vs. validation loss for a given model version (user can select to view one model version's train/valid loss charts, starting from the recent and selecting back however many is kept by the app)
+
+* Finally, add the ability to click and drag data centers, so that the admin user can create custom drift, or create a custom state of point positions.
