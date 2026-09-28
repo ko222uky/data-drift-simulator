@@ -77,7 +77,13 @@ export function StatTiles({ status }: { status: Status | null }) {
         <div className="text-xs text-ink-2">Session {status?.session_id || "—"}</div>
       </Tile>
 
-      <Tile label="Data drift" footer={drift?.active ? `r = ${status?.config.drift_rate} per interval` : "Centres stable"}>
+      <Tile label="Data drift" footer={
+          drift?.continuous
+            ? `Continuous · r = ${status?.config.drift_rate} per interval`
+            : drift?.active
+              ? `r = ${status?.config.drift_rate} per interval`
+              : "Centres stable"
+        }>
         <div className="text-lg font-semibold">{drift?.active ? pct(drift.progress, 0) : "None"}</div>
         <div
           className="mt-2 h-1.5 overflow-hidden rounded-full bg-wash"

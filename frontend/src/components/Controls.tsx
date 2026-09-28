@@ -38,6 +38,7 @@ export function Controls({ status, onChange }: { status: Status | null; onChange
 
   const paused = status?.paused ?? false;
   const autoRetrain = status?.auto_retrain ?? true;
+  const continuousDrift = status?.drift.continuous ?? false;
 
   return (
     <Panel title="Controls" subtitle={`Signed in as ${user}`}>
@@ -66,27 +67,42 @@ export function Controls({ status, onChange }: { status: Status | null; onChange
         </Button>
       </div>
 
-      <div className="mt-4 flex items-start justify-between gap-3 rounded-md border border-line px-3 py-2.5">
-        <div className="min-w-0">
-          <div id="auto-retrain-label" className="text-sm font-medium text-ink">
-            Automatic retraining
-          </div>
-          <p className="text-xs text-ink-2">
-            {autoRetrain
+      <div className="mt-4 flex flex-col gap-2">
+        <SwitchRow
+          id="auto-retrain-label"
+          title="Automatic retraining"
+          description={
+            autoRetrain
               ? "Retrains when accuracy stays below the threshold."
               : status?.retrain_suppressed
                 ? "Paused. A retrain is due and will run on the next interval after you resume."
-                : "Paused. Breaches are still counted; Retrain now still works."}
-          </p>
-        </div>
-        <Switch
+                : "Paused. Breaches are still counted; Retrain now still works."
+          }
           checked={autoRetrain}
           disabled={busy || !status}
-          labelledBy="auto-retrain-label"
           onChange={(on) =>
             run(
               on ? modelApi.resumeAutoRetrain : modelApi.pauseAutoRetrain,
               on ? "Automatic retraining resumed" : "Automatic retraining paused",
+            )
+          }
+        />
+        <SwitchRow
+          id="continuous-drift-label"
+          title="Continuous drift"
+          description={
+            continuousDrift
+              ? `Centres keep moving to new random positions at r = ${status?.config.drift_rate} per interval.`
+              : status?.drift.active
+                ? "Off. The current drift will finish, then the centres stay put."
+                : "Off. Drift only happens when you trigger it."
+          }
+          checked={continuousDrift}
+          disabled={busy || !status}
+          onChange={(on) =>
+            run(
+              on ? modelApi.startContinuousDrift : modelApi.stopContinuousDrift,
+              on ? "Continuous drift on" : "Continuous drift off",
             )
           }
         />
@@ -107,5 +123,33 @@ export function Controls({ status, onChange }: { status: Status | null; onChange
       )}
       <StatusMessage message={message} />
     </Panel>
+  );
+}
+
+function SwitchRow({
+  id,
+  title,
+  description,
+  checked,
+  disabled,
+  onChange,
+}: {
+  id: string;
+  title: string;
+  description: string;
+  checked: boolean;
+  disabled: boolean;
+  onChange: (on: boolean) => void;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-3 rounded-md border border-line px-3 py-2.5">
+      <div className="min-w-0">
+        <div id={id} className="text-sm font-medium text-ink">
+          {title}
+        </div>
+        <p className="text-xs text-ink-2">{description}</p>
+      </div>
+      <Switch checked={checked} disabled={disabled} labelledBy={id} onChange={onChange} />
+    </div>
   );
 }

@@ -12,6 +12,7 @@ from .monitor import Phase
 class DriftState(BaseModel):
     active: bool
     progress: float | None
+    continuous: bool
 
 
 class ModelInfo(BaseModel):

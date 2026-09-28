@@ -137,3 +137,39 @@ def test_auto_retrain_toggle_is_idempotent_and_logged(engine):
     kinds = [e.kind for e in engine.store.recent_events(10)]
     assert kinds.count("auto_retrain_paused") == 1
     assert kinds.count("auto_retrain_resumed") == 1
+
+
+def _drift_events(engine):
+    return [e for e in engine.store.recent_events(200) if e.kind == "drift_started"]
+
+
+def test_continuous_drift_chains_legs_until_turned_off(engine):
+    # Fixture drift_rate is 0.5, so each leg takes two intervals.
+    engine.set_continuous_drift(True)
+    assert engine.simulator.drifting  # starts a leg immediately when idle
+    for _ in range(6):
+        engine.step()
+    assert engine.simulator.drifting  # still drifting after three legs' worth of steps
+    assert len(_drift_events(engine)) >= 3
+    kinds = [e.kind for e in engine.store.recent_events(200)]
+    assert kinds.count("drift_completed") >= 2
+    assert engine.status()["drift"]["continuous"] is True
+
+    engine.set_continuous_drift(False)
+    for _ in range(3):
+        engine.step()
+    assert not engine.simulator.drifting  # the current leg finished, no new one started
+    legs = len(_drift_events(engine))
+    for _ in range(3):
+        engine.step()
+    assert len(_drift_events(engine)) == legs
+    assert engine.status()["drift"]["continuous"] is False
+
+
+def test_continuous_drift_survives_session_reset(engine):
+    engine.set_continuous_drift(True)
+    engine.request("reset")
+    engine.run_pending()
+    assert not engine.simulator.drifting  # fresh session starts still
+    engine.step()
+    assert engine.simulator.drifting  # ...and continuous drift resumes on the first interval

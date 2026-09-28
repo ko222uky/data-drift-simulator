@@ -53,6 +53,7 @@ GET routes are public; everything else is protected by the gateway (see `service
 | GET | `/trainings?limit=&include_history=` | Training runs kept this session, newest first; `include_history=false` omits per-epoch curves (a cheap version list) |
 | GET | `/trainings/{version}` | One run with its per-epoch train/validation curves (404 if not kept) |
 | POST | `/drift` | Start drifting to new random centres |
+| POST | `/drift/continuous/start`, `/drift/continuous/stop` | Continuous drift: each completed leg chains into a new one towards random centres at rate `r`; stopping lets the current leg finish |
 | POST | `/retrain` | Queue a manual retrain on W |
 | POST | `/pause`, `/resume` | Pause / resume the interval loop |
 | POST | `/auto-retrain/pause`, `/auto-retrain/resume` | Pause / resume threshold-triggered retraining (see below) |
@@ -75,6 +76,7 @@ Fixed at start-up (restart to change):
 | `MODEL_MLFLOW_EXPERIMENT` | `drift-monitoring` | |
 | `MODEL_REGISTERED_MODEL_NAME` | `drift-classifier` | |
 | `MODEL_AUTO_RETRAIN` | `true` | Start with automatic retraining on (switchable at runtime) |
+| `MODEL_CONTINUOUS_DRIFT` | `false` | Start with continuous drift on (switchable at runtime) |
 
 Initial runtime policy, which you can change live from the dashboard: `MODEL_BATCH_SIZE` (n=100),
 `MODEL_INTERVAL_SECONDS` (5), `MODEL_ACCURACY_THRESHOLD` (0.85), `MODEL_BREACH_INTERVALS`

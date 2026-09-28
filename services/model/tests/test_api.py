@@ -64,6 +64,11 @@ def test_endpoints(settings):
         assert client.post("/auto-retrain/resume").status_code == 200
         assert client.get("/status").json()["auto_retrain"] is True
 
+        assert client.post("/drift/continuous/start").status_code == 200
+        assert client.get("/status").json()["drift"]["continuous"] is True
+        assert client.post("/drift/continuous/stop").status_code == 200
+        assert client.get("/status").json()["drift"]["continuous"] is False
+
         assert client.post("/pause").status_code == 200
         assert client.get("/status").json()["paused"] is True
         kinds = [e["kind"] for e in client.get("/events").json()]

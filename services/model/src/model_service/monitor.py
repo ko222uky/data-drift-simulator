@@ -70,6 +70,9 @@ class MonitorEngine:
         self.interval = 0
         self.paused = False
         self.auto_retrain = settings.auto_retrain
+        # Continuous drift chains drift legs: each completed leg starts another towards new
+        # random centres, so the data keeps wandering at rate r.
+        self.continuous_drift = settings.continuous_drift
         self._suppression_logged = False  # one "retrain_suppressed" event per breach streak
         self.training = False
         self.consecutive_breaches = 0
@@ -154,13 +157,29 @@ class MonitorEngine:
 
     def start_drift(self) -> None:
         with self.lock:
-            target = self.simulator.start_drift()
-            self.store.add_event(
-                self.interval,
-                "drift_started",
-                f"Drift started towards new centres at r={self.config.drift_rate:.3f}/interval",
-                target=target.round(3).tolist(),
-            )
+            self._start_drift_leg(f"Drift started towards new centres at r={self.config.drift_rate:.3f}/interval")
+
+    def _start_drift_leg(self, message: str) -> None:
+        target = self.simulator.start_drift()
+        self.store.add_event(self.interval, "drift_started", message, target=target.round(3).tolist())
+
+    def set_continuous_drift(self, enabled: bool) -> None:
+        """Turn continuous drift on (start a leg now if idle) or off (the current leg finishes)."""
+        with self.lock:
+            if self.continuous_drift == enabled:
+                return
+            self.continuous_drift = enabled
+            if enabled:
+                self.store.add_event(
+                    self.interval, "continuous_drift_on", f"Continuous drift on at r={self.config.drift_rate:.3f}/interval"
+                )
+                self.tracker.log_config(self.interval, {"continuous_drift": True})
+                if self.simulator is not None and not self.simulator.drifting:
+                    self._start_drift_leg("Continuous drift: moving towards new random centres")
+            else:
+                leg = " The current leg will finish." if self.simulator is not None and self.simulator.drifting else ""
+                self.store.add_event(self.interval, "continuous_drift_off", "Continuous drift off." + leg)
+                self.tracker.log_config(self.interval, {"continuous_drift": False})
 
     def set_paused(self, paused: bool) -> None:
         with self.lock:
@@ -228,6 +247,9 @@ class MonitorEngine:
             drift_progress = self.simulator.drift_progress if self.simulator.drifting else None
             if self.simulator.advance(cfg.drift_rate):
                 self.store.add_event(t, "drift_completed", "Centres reached their new positions")
+            if self.continuous_drift and not self.simulator.drifting:
+                # Chain the next leg (also restarts drift after a session reset).
+                self._start_drift_leg("Continuous drift: moving towards new random centres")
 
             self.last_accuracy = result.accuracy
             self.store.add_metric(
@@ -408,6 +430,7 @@ class MonitorEngine:
                 "drift": {
                     "active": bool(sim and sim.drifting),
                     "progress": sim.drift_progress if sim and sim.drifting else None,
+                    "continuous": self.continuous_drift,
                 },
                 "model": None
                 if d is None

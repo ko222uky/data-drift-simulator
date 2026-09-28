@@ -115,6 +115,20 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
         engine(request).start_drift()
         return Accepted(detail="drift started")
 
+    @app.post("/drift/continuous/start", response_model=Accepted, tags=["control"])
+    def start_continuous_drift(request: Request):
+        """Keep drifting: each completed leg chains into a new one towards random centres, at rate r."""
+        if engine(request).simulator is None:
+            raise HTTPException(409, "simulation has not started yet")
+        engine(request).set_continuous_drift(True)
+        return Accepted(detail="continuous drift on")
+
+    @app.post("/drift/continuous/stop", response_model=Accepted, tags=["control"])
+    def stop_continuous_drift(request: Request):
+        """Stop chaining drift legs; a leg in progress runs to completion."""
+        engine(request).set_continuous_drift(False)
+        return Accepted(detail="continuous drift off")
+
     @app.post("/retrain", response_model=Accepted, status_code=202, tags=["control"])
     def retrain(request: Request):
         engine(request).request("retrain")

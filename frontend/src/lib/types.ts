@@ -74,7 +74,8 @@ export interface Status {
   last_accuracy: number | null;
   consecutive_breaches: number;
   retry_at_interval: number | null;
-  drift: { active: boolean; progress: number | null };
+  /** continuous: each completed drift leg chains into a new one towards random centres. */
+  drift: { active: boolean; progress: number | null; continuous: boolean };
   model: ModelInfo | null;
   problem: { n_features: number; n_classes: number; initial_size: number; [key: string]: number };
   config: MonitorConfig;
