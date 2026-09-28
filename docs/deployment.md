@@ -175,16 +175,31 @@ restrict,command="/usr/local/bin/mlops-ci-deploy" ssh-ed25519 AAAA… github-act
    ssh root@<droplet-ip> "echo 'restrict,command=\"/usr/local/bin/mlops-ci-deploy\" $(cat ci_deploy_key.pub)' >> ~/.ssh/authorized_keys"
    ```
 
-3. **Add three repository secrets** in GitHub (**Settings → Secrets and variables → Actions →
-   New repository secret**):
+3. **Add three repository secrets with the GitHub CLI** ([`gh`](https://cli.github.com/)).
+   Set the private key **from the file, not by pasting**. A key pasted into the browser form
+   is easily corrupted (a missed line, joined lines, Windows line endings), and the deploy
+   then fails with `Load key …: error in libcrypto`. Piping the file uploads the exact bytes:
+
+   ```bash
+   gh auth login --hostname github.com --git-protocol ssh --web --skip-ssh-key   # once
+   gh secret set DEPLOY_SSH_KEY     --repo <owner>/<repo> < ci_deploy_key
+   gh secret set DEPLOY_HOST        --repo <owner>/<repo> --body "<droplet-ip>"
+   ssh-keygen -F <droplet-ip> | grep ssh-ed25519 | gh secret set DEPLOY_KNOWN_HOSTS --repo <owner>/<repo>
+   gh secret list --repo <owner>/<repo>
+   ```
 
    | Secret | Value |
    |---|---|
    | `DEPLOY_HOST` | the droplet's IP |
-   | `DEPLOY_SSH_KEY` | the whole *private* key file `ci_deploy_key`, including the BEGIN/END lines |
-   | `DEPLOY_KNOWN_HOSTS` | the droplet's host key line from `ssh-keygen -F <droplet-ip>` (after you've verified its fingerprint), e.g. `203.0.113.10 ssh-ed25519 AAAA…` |
+   | `DEPLOY_SSH_KEY` | the whole *private* key file `ci_deploy_key` |
+   | `DEPLOY_KNOWN_HOSTS` | the droplet's host key line from `ssh-keygen -F <droplet-ip>` (verify its fingerprint first), e.g. `203.0.113.10 ssh-ed25519 AAAA…` |
+
+   On Windows, install the CLI with `winget install --id GitHub.cli`.
 
 4. **Delete the local private key** once it's saved in GitHub.
+5. **Check it:** re-run the latest CI run on `main` (**Actions → CI → Re-run all jobs**, or
+   `gh run rerun <run-id> --repo <owner>/<repo>`). The **Configure SSH** step prints
+   `Deploy key fingerprint: SHA256:…`, which must match `ssh-keygen -lf ci_deploy_key.pub`.
 
 The job uses a GitHub **environment** named `production`, so every deploy appears under the
 repo's *Deployments*. To require manual approval before each deploy, add yourself as a
@@ -233,7 +248,7 @@ docker compose restart mlflow
 |---|---|
 | `git clone` / `ssh -T git@github.com`: `Permission denied (publickey)` | GitHub doesn't know the key. Check the repo's Deploy keys list shows the same fingerprint as `ssh-keygen -lf ~/.ssh/github_deploy.pub`; re-paste it as one line if not. (A key added to the wrong repo or to your account authenticates instead.) |
 | Actions `deploy` job: `Permission denied (publickey)` | GitHub's `DEPLOY_SSH_KEY` isn't the key in the droplet's `authorized_keys`. The **Configure SSH** step prints the loaded key's fingerprint: compare it with `ssh-keygen -lf` of the CI line in `/root/.ssh/authorized_keys`. Windows line endings are stripped automatically; if the fingerprints differ, rotate the key (see "Automatic deploys") |
-| Actions `deploy` job: `DEPLOY_SSH_KEY is not a usable private key` | The secret is incomplete, usually a partial paste. Re-paste the whole private key, including the `BEGIN` and `END` lines |
+| Actions `deploy` job: `DEPLOY_SSH_KEY is not a usable private key` | The secret is empty, misnamed or damaged (a partial paste, joined lines, or the public key by mistake); all of these give `error in libcrypto`. Set it from the file with `gh secret set DEPLOY_SSH_KEY < ci_deploy_key`. If the original private key is gone, rotate the key (see "Automatic deploys") |
 | Actions `deploy` job: `Host key verification failed` | `DEPLOY_KNOWN_HOSTS` doesn't match the droplet (for example after a rebuild). Re-verify the fingerprint and update the secret |
 | Actions `deploy` job: `is not on origin/main; refusing to deploy` | The run wasn't for a commit on `main`; only `main` deploys |
 | Browser shows a certificate error | DNS must resolve to the droplet *before* the first start; `docker compose logs gateway` shows the ACME errors |
