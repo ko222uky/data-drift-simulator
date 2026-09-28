@@ -182,6 +182,9 @@ The full guide covers sizing, DNS without a domain, backups and troubleshooting:
 [docs/deployment.md](docs/deployment.md). For per-service workflows, see
 [docs/development.md](docs/development.md).
 
+**New to the codebase?** Start with [docs/onboarding.md](docs/onboarding.md): a reading
+order, a guided tour of the source, and recipes for common changes.
+
 ## Feature backlog
 
 Delivered on the `feat/drift` branch; details are in the service and frontend READMEs.
