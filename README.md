@@ -129,14 +129,21 @@ The full guide covers sizing, DNS without a domain, backups and troubleshooting:
 [docs/deployment.md](docs/deployment.md). For per-service workflows, see
 [docs/development.md](docs/development.md).
 
-## To be Added:
+## Feature backlog
 
-* Highlighted / colored windows in the linechart showing which intervals were used for training and which were used for validation. Highlights do not conflict with the data drift window in the line chart.
+Delivered on the `feat/drift` branch; details are in the service and frontend READMEs.
 
-* In the training params, include the train:test split ratio as a parameter. Also allow selection of using a randomized split or using the recent intervals for validation.
+- [x] Highlighted / colored windows in the linechart showing which intervals were used for training and which were used for validation. Highlights do not conflict with the data drift window in the line chart.
+  Where: Accuracy chart: a bottom lane shows the selected model version's training and validation intervals, clear of the drift shading.
 
-* Add a toggle for a continuous random drift to the data points, using the data drift rate parameter provided in the controls.
+- [x] In the training params, include the train:test split ratio as a parameter. Also allow selection of using a randomized split or using the recent intervals for validation.
+  Where: Training parameters: **Validation split** (recent intervals or random rows) and **Validation share**, shown as a train : validation ratio.
 
-* Add another widget to view train vs. validation loss for a given model version (user can select to view one model version's train/valid loss charts, starting from the recent and selecting back however many is kept by the app)
+- [x] Add a toggle for a continuous random drift to the data points, using the data drift rate parameter provided in the controls.
+  Where: Controls: **Continuous drift** switch; each drift leg chains into a new one at the drift rate.
 
-* Finally, add the ability to click and drag data centers, so that the admin user can create custom drift, or create a custom state of point positions.
+- [x] Add another widget to view train vs. validation loss for a given model version (user can select to view one model version's train/valid loss charts, starting from the recent and selecting back however many is kept by the app)
+  Where: **Model version** panel: training vs. validation loss per epoch for any version kept this session.
+
+- [x] Finally, add the ability to click and drag data centers, so that the admin user can create custom drift, or create a custom state of point positions.
+  Where: Projection: signed-in operators drag a centre P, choosing **Drag: move now** or **Drag: drift there**.
