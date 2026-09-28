@@ -1,0 +1,91 @@
+@import "tailwindcss";
+
+/*
+ * Design tokens. Chart colours follow the validated categorical palette; status colours
+ * are reserved for model state and always ship with an icon + label.
+ */
+:root {
+  color-scheme: light;
+  --page: #f9f9f7;
+  --surface: #fcfcfb;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --muted: #898781;
+  --grid: #e1e0d9;
+  --axis: #c3c2b7;
+  --border: rgba(11, 11, 11, 0.1);
+  --wash: rgba(11, 11, 11, 0.05);
+
+  --accent: #2a78d6;
+  --accent-ink: #ffffff;
+
+  --class-0: #2a78d6;
+  --class-1: #eb6834;
+  --class-2: #1baf7a;
+  --class-3: #4a3aa7;
+  --class-4: #eda100;
+  --class-5: #e87ba4;
+  --class-6: #008300;
+  --class-7: #e34948;
+
+  --good: #0ca30c;
+  --warning: #fab219;
+  --serious: #ec835a;
+  --critical: #d03b3b;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --page: #0d0d0d;
+    --surface: #1a1a19;
+    --ink: #ffffff;
+    --ink-2: #c3c2b7;
+    --muted: #898781;
+    --grid: #2c2c2a;
+    --axis: #383835;
+    --border: rgba(255, 255, 255, 0.1);
+    --wash: rgba(255, 255, 255, 0.06);
+
+    --accent: #3987e5;
+    --accent-ink: #ffffff;
+
+    --class-0: #3987e5;
+    --class-1: #d95926;
+    --class-2: #199e70;
+    --class-3: #9085e9;
+    --class-4: #c98500;
+    --class-5: #d55181;
+    --class-6: #008300;
+    --class-7: #e66767;
+  }
+}
+
+@theme inline {
+  --color-page: var(--page);
+  --color-surface: var(--surface);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-muted: var(--muted);
+  --color-grid: var(--grid);
+  --color-axis: var(--axis);
+  --color-line: var(--border);
+  --color-wash: var(--wash);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-good: var(--good);
+  --color-warning: var(--warning);
+  --color-serious: var(--serious);
+  --color-critical: var(--critical);
+  --font-sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+body {
+  background: var(--page);
+  color: var(--ink);
+  font-family: var(--font-sans);
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}

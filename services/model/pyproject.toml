@@ -1,0 +1,38 @@
+[project]
+name = "model-service"
+version = "0.1.0"
+description = "PyTorch + FastAPI model service: simulates a drifting data stream, serves a classifier, monitors it and retrains it."
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic-settings>=2.6",
+    "sqlalchemy>=2.0",
+    "psycopg[binary]>=3.2",
+    "torch>=2.5",
+    "numpy>=2.1",
+    "mlflow-skinny>=3.16",
+    "pandas>=2.2",  # required by mlflow.pytorch; not bundled with mlflow-skinny
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "httpx>=0.28",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.2,<0.12.0"]
+build-backend = "uv_build"
+
+# CPU-only PyTorch wheels: a droplet has no GPU and the CUDA wheels are ~2 GB larger.
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

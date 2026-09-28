@@ -1,0 +1,71 @@
+# API gateway + edge proxy. The only container with published ports.
+#
+# SITE_ADDRESS decides TLS:
+#   http://localhost        -> plain HTTP for local development
+#   demo.example.com        -> automatic HTTPS via Let's Encrypt (DNS must point here)
+#
+# Routes:
+#   /api/auth/*   -> auth service      (public: login / logout / me)
+#   /api/model/*  -> model service     (GET public; anything else requires a session)
+#   /mlflow/*     -> MLflow UI + API   (requires a session; redirects to /login)
+#   everything else -> Next.js frontend
+#
+# Upstreams default to the docker compose service names; the *_UPSTREAM variables
+# exist so the same file can front services running directly on the host.
+
+{$SITE_ADDRESS::80} {
+	encode zstd gzip
+
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+
+	request_body {
+		max_size 1MB
+	}
+
+	# ---- auth service --------------------------------------------------------
+	# /verify is the internal forward-auth hook; never expose it.
+	handle /api/auth/verify {
+		respond 404
+	}
+	handle_path /api/auth/* {
+		reverse_proxy {$AUTH_UPSTREAM:auth:8000}
+	}
+
+	# ---- model service -------------------------------------------------------
+	@model_write {
+		path /api/model/*
+		not method GET HEAD
+	}
+	handle @model_write {
+		forward_auth {$AUTH_UPSTREAM:auth:8000} {
+			uri /verify
+			copy_headers X-Auth-User
+		}
+		uri strip_prefix /api/model
+		reverse_proxy {$MODEL_UPSTREAM:model:8000}
+	}
+	handle_path /api/model/* {
+		reverse_proxy {$MODEL_UPSTREAM:model:8000}
+	}
+
+	# ---- MLflow (served under the /mlflow static prefix) ---------------------
+	handle /mlflow* {
+		forward_auth {$AUTH_UPSTREAM:auth:8000} {
+			uri /verify
+			@unauthorized status 401
+			handle_response @unauthorized {
+				redir * /login?next=/mlflow/ 302
+			}
+		}
+		reverse_proxy {$MLFLOW_UPSTREAM:mlflow:5000}
+	}
+
+	# ---- frontend ------------------------------------------------------------
+	handle {
+		reverse_proxy {$FRONTEND_UPSTREAM:frontend:3000}
+	}
+}
