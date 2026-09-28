@@ -90,3 +90,21 @@ def test_weight_decay_shrinks_weights(noisy_data):
         model = train(features, labels, intervals, n_classes=4, config=config, seed=1).model
         norms[wd] = sum(float(p.norm()) for name, p in model.named_parameters() if "weight" in name)
     assert norms[0.5] < norms[0.0]
+
+
+def test_random_split_method_ignores_time(noisy_data):
+    features, labels, intervals = noisy_data  # 10 intervals x 100 rows
+    config = TrainingConfig(split_method="random", validation_fraction=0.25, max_epochs=3)
+    result = train(features, labels, intervals, n_classes=4, config=config, seed=1)
+    assert result.split.method == "random"
+    assert result.split.val_from_interval is None
+    assert result.n_val == 250
+    # Validation rows come from across the window, not just the newest intervals.
+    assert len(set(intervals[result.split.val_idx])) > 5
+
+
+def test_temporal_split_method_is_the_default(noisy_data):
+    features, labels, intervals = noisy_data
+    result = train(features, labels, intervals, n_classes=4, config=TrainingConfig(max_epochs=3), seed=1)
+    assert result.split.method == "temporal"
+    assert result.split.val_from_interval == 9

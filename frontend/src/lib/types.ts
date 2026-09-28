@@ -20,6 +20,7 @@ export interface TrainingConfig {
   hidden_units: number;
   batch_size: number;
   validation_fraction: number;
+  split_method: "temporal" | "random";
 }
 
 export interface EpochMetrics {
@@ -36,6 +37,8 @@ export interface TrainingRun {
   reason: string;
   split_method: "temporal" | "random";
   val_from_interval: number | null;
+  /** First interval of the data the run trained on (the window W); the last is `interval`. */
+  data_from_interval: number;
   n_train: number;
   n_val: number;
   /** 0-based index into history of the epoch whose weights were kept. */
@@ -71,7 +74,8 @@ export interface Status {
   last_accuracy: number | null;
   consecutive_breaches: number;
   retry_at_interval: number | null;
-  drift: { active: boolean; progress: number | null };
+  /** continuous: each completed drift leg chains into a new one towards random centres. */
+  drift: { active: boolean; progress: number | null; continuous: boolean };
   model: ModelInfo | null;
   problem: { n_features: number; n_classes: number; initial_size: number; [key: string]: number };
   config: MonitorConfig;

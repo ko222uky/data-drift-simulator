@@ -33,6 +33,10 @@ def test_endpoints(settings):
         assert client.get("/status").json()["training_config"]["patience"] == 3
         assert client.put("/training-config", json={"max_epochs": 0}).status_code == 422
         assert client.put("/training-config", json={}).status_code == 422
+        assert client.put("/training-config", json={"split_method": "sideways"}).status_code == 422
+        tc = client.put("/training-config", json={"split_method": "random"}).json()
+        assert tc["split_method"] == "random"
+        client.put("/training-config", json={"split_method": "temporal"})
 
         for _ in range(3):
             engine.step()
@@ -41,7 +45,17 @@ def test_endpoints(settings):
         latest = client.get("/trainings?limit=1").json()[0]
         assert latest["version"] == 2
         assert latest["split_method"] == "temporal"
+        # Trained on the window W (the last w intervals); validation is its newest part.
+        assert latest["data_from_interval"] == latest["interval"] - engine.config.window_intervals + 1
+        assert latest["data_from_interval"] < latest["val_from_interval"] <= latest["interval"]
         assert latest["config"]["patience"] == 3
+
+        summary = client.get("/trainings?include_history=false").json()
+        assert [r["version"] for r in summary] == [2, 1]
+        assert all(r["history"] == [] for r in summary)
+        one = client.get("/trainings/1").json()
+        assert one["version"] == 1 and len(one["history"]) == one["epochs_run"]
+        assert client.get("/trainings/99").status_code == 404
 
         assert client.post("/retrain").status_code == 202
         assert client.get("/status").json()["auto_retrain"] is True
@@ -49,6 +63,16 @@ def test_endpoints(settings):
         assert client.get("/status").json()["auto_retrain"] is False
         assert client.post("/auto-retrain/resume").status_code == 200
         assert client.get("/status").json()["auto_retrain"] is True
+
+        assert client.post("/centers/0", json={"x": 1.0, "y": 2.0}).status_code == 200
+        assert client.post("/centers/0", json={"x": 1.0, "y": 2.0, "mode": "drift"}).status_code == 200
+        assert client.post("/centers/99", json={"x": 0, "y": 0}).status_code == 404
+        assert client.post("/centers/0", json={"x": 0, "y": 0, "mode": "teleport"}).status_code == 422
+
+        assert client.post("/drift/continuous/start").status_code == 200
+        assert client.get("/status").json()["drift"]["continuous"] is True
+        assert client.post("/drift/continuous/stop").status_code == 200
+        assert client.get("/status").json()["drift"]["continuous"] is False
 
         assert client.post("/pause").status_code == 200
         assert client.get("/status").json()["paused"] is True

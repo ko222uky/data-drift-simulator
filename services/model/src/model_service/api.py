@@ -11,7 +11,9 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
-from pydantic import ValidationError
+from typing import Literal
+
+from pydantic import BaseModel, ValidationError
 
 from .config import ConfigUpdate, MonitorConfig, ServiceSettings, TrainingConfig, TrainingConfigUpdate
 from .monitor import MonitorEngine
@@ -78,9 +80,24 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
             raise HTTPException(422, jsonable_encoder(exc.errors(include_url=False, include_context=False))) from exc
 
     @app.get("/trainings", response_model=list[TrainingRunOut], tags=["training"])
-    def trainings(request: Request, limit: int = Query(10, ge=1, le=100)):
-        """Most recent training runs, newest first, with per-epoch curves."""
-        return engine(request).store.recent_training_runs(limit)
+    def trainings(
+        request: Request,
+        limit: int = Query(10, ge=1, le=100),
+        include_history: bool = Query(True, description="False omits per-epoch curves (cheap run list)"),
+    ):
+        """Most recent training runs kept this session, newest first."""
+        runs = engine(request).store.recent_training_runs(limit)
+        if include_history:
+            return runs
+        return [TrainingRunOut.model_validate(r, from_attributes=True).model_copy(update={"history": []}) for r in runs]
+
+    @app.get("/trainings/{version}", response_model=TrainingRunOut, tags=["training"])
+    def training(request: Request, version: int):
+        """One training run, with its per-epoch train/validation curves."""
+        run = engine(request).store.get_training_run(version)
+        if run is None:
+            raise HTTPException(404, f"no training run v{version} in this session")
+        return run
 
     @app.get("/training-config", response_model=TrainingConfig, tags=["training"])
     def get_training_config(request: Request):
@@ -93,12 +110,42 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
         except ValidationError as exc:  # values outside TrainingConfig bounds
             raise HTTPException(422, jsonable_encoder(exc.errors(include_url=False, include_context=False))) from exc
 
+    class CenterMove(BaseModel):
+        x: float
+        y: float
+        mode: Literal["move", "drift"] = "move"
+
+    @app.post("/centers/{label}", response_model=Accepted, tags=["control"])
+    def move_center(request: Request, label: int, body: CenterMove):
+        """Place a class centre at a 2-D chart position (mode "move") or drift it there ("drift")."""
+        try:
+            engine(request).move_center(label, body.x, body.y, body.mode)
+        except RuntimeError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        return Accepted(detail="centre moved" if body.mode == "move" else "centre drifting to target")
+
     @app.post("/drift", response_model=Accepted, tags=["control"])
     def drift(request: Request):
         if engine(request).simulator is None:
             raise HTTPException(409, "simulation has not started yet")
         engine(request).start_drift()
         return Accepted(detail="drift started")
+
+    @app.post("/drift/continuous/start", response_model=Accepted, tags=["control"])
+    def start_continuous_drift(request: Request):
+        """Keep drifting: each completed leg chains into a new one towards random centres, at rate r."""
+        if engine(request).simulator is None:
+            raise HTTPException(409, "simulation has not started yet")
+        engine(request).set_continuous_drift(True)
+        return Accepted(detail="continuous drift on")
+
+    @app.post("/drift/continuous/stop", response_model=Accepted, tags=["control"])
+    def stop_continuous_drift(request: Request):
+        """Stop chaining drift legs; a leg in progress runs to completion."""
+        engine(request).set_continuous_drift(False)
+        return Accepted(detail="continuous drift off")
 
     @app.post("/retrain", response_model=Accepted, status_code=202, tags=["control"])
     def retrain(request: Request):

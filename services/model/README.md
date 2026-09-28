@@ -50,8 +50,11 @@ GET routes are public; everything else is protected by the gateway (see `service
 | GET | `/projection?max_points=` | 2-D projected points (W + older), current centres, drift targets |
 | GET / PUT | `/config` | Read / partially update the monitoring policy |
 | GET / PUT | `/training-config` | Read / partially update training parameters (used from the next training) |
-| GET | `/trainings?limit=` | Recent training runs, newest first, with per-epoch curves |
+| GET | `/trainings?limit=&include_history=` | Training runs kept this session, newest first; `include_history=false` omits per-epoch curves (a cheap version list) |
+| GET | `/trainings/{version}` | One run with its per-epoch train/validation curves (404 if not kept) |
 | POST | `/drift` | Start drifting to new random centres |
+| POST | `/centers/{label}` | Body `{x, y, mode}`: place a class centre at a 2-D chart position now (`mode: "move"`) or drift it there at rate `r` (`"drift"`). The position is lifted back to M dimensions within the plotted plane only |
+| POST | `/drift/continuous/start`, `/drift/continuous/stop` | Continuous drift: each completed leg chains into a new one towards random centres at rate `r`; stopping lets the current leg finish |
 | POST | `/retrain` | Queue a manual retrain on W |
 | POST | `/pause`, `/resume` | Pause / resume the interval loop |
 | POST | `/auto-retrain/pause`, `/auto-retrain/resume` | Pause / resume threshold-triggered retraining (see below) |
@@ -74,6 +77,7 @@ Fixed at start-up (restart to change):
 | `MODEL_MLFLOW_EXPERIMENT` | `drift-monitoring` | |
 | `MODEL_REGISTERED_MODEL_NAME` | `drift-classifier` | |
 | `MODEL_AUTO_RETRAIN` | `true` | Start with automatic retraining on (switchable at runtime) |
+| `MODEL_CONTINUOUS_DRIFT` | `false` | Start with continuous drift on (switchable at runtime) |
 
 Initial runtime policy, which you can change live from the dashboard: `MODEL_BATCH_SIZE` (n=100),
 `MODEL_INTERVAL_SECONDS` (5), `MODEL_ACCURACY_THRESHOLD` (0.85), `MODEL_BREACH_INTERVALS`
@@ -104,12 +108,15 @@ Each training (the initial model and every retrain) works as follows:
    than rows keeps the large initial dataset from pushing all the drifted data into
    validation early in a session. The initial model has only interval 0, so it uses a random split.
    Validating on the newest data estimates next-batch performance honestly while drift is in progress.
+   The split method is configurable: `random` samples validation rows from the whole window
+   instead, which is useful for comparing the two approaches. Expect optimistic scores during drift.
 2. **AdamW** with decoupled weight decay.
 3. **Early stopping.** Training stops once validation loss hasn't improved (by more than 1e-4)
    for `patience` epochs, or at `max_epochs`. The **best epoch's weights are restored**, and its
    metrics are the ones reported, stored and compared with the threshold.
 
-Every run is stored in the `training_runs` table (served by `/trainings` for the dashboard) and
+Every run is stored in the `training_runs` table (served by `/trainings` for the dashboard, including
+the interval range it trained on, `data_from_interval`..`interval`, and where validation began) and
 logged to MLflow (`train-v<N>`, with `best_epoch` and `epochs_run` metrics).
 
 Initial training parameters, all changeable live from the dashboard (applied from the next training):
@@ -122,7 +129,8 @@ Initial training parameters, all changeable live from the dashboard (applied fro
 | `MODEL_WEIGHT_DECAY` | 0.001 | AdamW weight decay |
 | `MODEL_HIDDEN_UNITS` | 64 | Width of both hidden layers |
 | `MODEL_TRAIN_BATCH_SIZE` | 128 | Mini-batch size |
-| `MODEL_VALIDATION_FRACTION` | 0.2 | Share of intervals held out |
+| `MODEL_VALIDATION_FRACTION` | 0.2 | Validation share: of intervals (time-based) or rows (random); train : validation = 80 : 20 |
+| `MODEL_SPLIT_METHOD` | `temporal` | `temporal` validates on the newest intervals; `random` on a random sample of rows |
 
 ## Design notes
 

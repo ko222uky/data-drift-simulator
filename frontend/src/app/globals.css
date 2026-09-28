@@ -19,6 +19,11 @@
   --accent: #2a78d6;
   --accent-ink: #ffffff;
 
+  /* Training vs. validation data, used consistently across charts. Categorical slots 3 and 2,
+     which validate as a set with the blue accent line. */
+  --train: #1baf7a;
+  --validation: #eb6834;
+
   --class-0: #2a78d6;
   --class-1: #eb6834;
   --class-2: #1baf7a;
@@ -49,6 +54,9 @@
 
     --accent: #3987e5;
     --accent-ink: #ffffff;
+
+    --train: #199e70;
+    --validation: #d95926;
 
     --class-0: #3987e5;
     --class-1: #d95926;

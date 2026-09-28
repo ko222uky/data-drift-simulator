@@ -49,6 +49,29 @@ class DataSimulator:
         self.drift_progress = 0.0
         return self.drift_target
 
+    def place_center(self, k: int, position: np.ndarray) -> None:
+        """Move centre ``k`` to ``position`` immediately.
+
+        During a drift, class k stops drifting and stays where it was placed (its origin
+        and target both become the new position); the other classes carry on.
+        """
+        self.centers[k] = position
+        if self.drift_target is not None and self._drift_origin is not None:
+            self._drift_origin[k] = position
+            self.drift_target[k] = position
+
+    def set_drift_target(self, k: int, position: np.ndarray) -> None:
+        """Send centre ``k`` drifting towards ``position``.
+
+        The drift restarts from the current centres: classes already drifting keep their
+        targets, idle classes stay put, and progress resets to 0.
+        """
+        target = self.drift_target.copy() if self.drift_target is not None else self.centers.copy()
+        target[k] = position
+        self._drift_origin = self.centers.copy()
+        self.drift_target = target
+        self.drift_progress = 0.0
+
     def advance(self, rate: float) -> bool:
         """Move one interval along the drift path. Returns True when the drift just finished."""
         if self.drift_target is None or self._drift_origin is None:

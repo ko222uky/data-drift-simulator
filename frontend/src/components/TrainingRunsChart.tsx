@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { CartesianGrid, Line, LineChart, ReferenceDot, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { formatLossTick } from "@/lib/format";
 import type { TrainingRun } from "@/lib/types";
 import { Panel, SegmentedToggle } from "./Panel";
 
@@ -68,7 +69,11 @@ function Fact({ label, value, detail }: { label: string; value: string; detail?:
 }
 
 function holdoutText(r: TrainingRun) {
-  if (r.split_method === "random") return `Random ${Math.round(r.config.validation_fraction * 100)}% (one interval)`;
+  if (r.split_method === "random") {
+    const share = `Random ${Math.round(r.config.validation_fraction * 100)}% of rows`;
+    // A time-based split falls back to random when all rows share one interval (the initial model).
+    return r.config.split_method === "temporal" ? `${share} (one interval)` : share;
+  }
   return r.val_from_interval === r.interval
     ? `Interval ${r.interval}`
     : `Intervals ${r.val_from_interval}–${r.interval}`;
@@ -163,7 +168,7 @@ export function TrainingRunsChart({ runs }: { runs: TrainingRun[] }) {
                 />
                 <YAxis
                   domain={[0, "auto"]}
-                  tickFormatter={(v: number) => v.toFixed(2)}
+                  tickFormatter={formatLossTick}
                   tick={{ fill: "var(--muted)", fontSize: 11 }}
                   tickLine={false}
                   axisLine={false}

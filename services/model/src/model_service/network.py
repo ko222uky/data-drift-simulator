@@ -95,14 +95,25 @@ def split_by_time(intervals: np.ndarray, validation_fraction: float, seed: int) 
     unique = np.unique(intervals)  # ascending
     if len(unique) < 2:
         # A single interval (e.g. the initial dataset): no time order, so split randomly.
-        n = len(intervals)
-        n_val = max(1, int(round(n * validation_fraction)))
-        order = np.random.default_rng(seed).permutation(n)
-        return Split(np.sort(order[n_val:]), np.sort(order[:n_val]), "random", None)
+        return split_random(len(intervals), validation_fraction, seed)
     n_held = min(max(1, math.ceil(validation_fraction * len(unique))), len(unique) - 1)
     val_from = int(unique[-n_held])
     is_val = intervals >= val_from
     return Split(np.flatnonzero(~is_val), np.flatnonzero(is_val), "temporal", val_from)
+
+
+def split_random(n: int, validation_fraction: float, seed: int) -> Split:
+    """Hold out a random ``validation_fraction`` of the rows, regardless of time."""
+    n_val = min(max(1, int(round(n * validation_fraction))), n - 1)
+    order = np.random.default_rng(seed).permutation(n)
+    return Split(np.sort(order[n_val:]), np.sort(order[:n_val]), "random", None)
+
+
+def split_data(intervals: np.ndarray, validation_fraction: float, method: str, seed: int) -> Split:
+    """Split per the configured method: ``"temporal"`` (default) or ``"random"``."""
+    if method == "random":
+        return split_random(len(intervals), validation_fraction, seed)
+    return split_by_time(intervals, validation_fraction, seed)
 
 
 def train(
@@ -119,7 +130,7 @@ def train(
     Training stops once validation loss has not improved for ``config.patience`` epochs
     (or at ``config.max_epochs``), and the weights from the best epoch are restored.
     """
-    split = split_by_time(intervals, config.validation_fraction, seed)
+    split = split_data(intervals, config.validation_fraction, config.split_method, seed)
     x_train = torch.from_numpy(features[split.train_idx])
     y_train = torch.from_numpy(labels[split.train_idx])
     x_val, y_val = features[split.val_idx], labels[split.val_idx]

@@ -16,6 +16,9 @@ class Projection:
 
     @classmethod
     def fit(cls, features: np.ndarray) -> "Projection":
+        # float64: the observations are float32, but dragging centres lifts 2-D positions
+        # back through these components, which should be exact.
+        features = np.asarray(features, dtype=np.float64)
         mean = features.mean(axis=0)
         _, _, vt = np.linalg.svd(features - mean, full_matrices=False)
         components = vt[:2]
@@ -25,3 +28,13 @@ class Projection:
 
     def transform(self, features: np.ndarray) -> np.ndarray:
         return (np.asarray(features) - self.mean) @ self.components.T
+
+    def lift(self, point: np.ndarray, target_xy: np.ndarray) -> np.ndarray:
+        """Move an M-dimensional point so it projects exactly onto ``target_xy``.
+
+        The move happens only within the plane of the two (orthonormal) components, so
+        every direction the plot can't show is left unchanged. This is how a centre
+        dragged on the 2-D chart becomes a new position in the full feature space.
+        """
+        delta = np.asarray(target_xy, dtype=float) - self.transform(point)
+        return np.asarray(point, dtype=float) + delta @ self.components

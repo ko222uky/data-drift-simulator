@@ -66,6 +66,8 @@ class TrainingRun(Base):
     reason: Mapped[str] = mapped_column(String(32))
     split_method: Mapped[str] = mapped_column(String(16))
     val_from_interval: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Interval range of the data it was trained on (the window W); ends at ``interval``.
+    data_from_interval: Mapped[int] = mapped_column(Integer)
     n_train: Mapped[int] = mapped_column(Integer)
     n_val: Mapped[int] = mapped_column(Integer)
     best_epoch: Mapped[int] = mapped_column(Integer)
@@ -161,6 +163,10 @@ class Store:
         """Newest first."""
         with self.session() as s:
             return list(s.scalars(select(TrainingRun).order_by(TrainingRun.version.desc()).limit(limit)).all())
+
+    def get_training_run(self, version: int) -> TrainingRun | None:
+        with self.session() as s:
+            return s.get(TrainingRun, version)
 
     def recent_events(self, limit: int) -> list[Event]:
         with self.session() as s:

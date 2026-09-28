@@ -32,6 +32,7 @@ export function NearestPointHover<T extends HoverItem>({
   items,
   container,
   radius = 18,
+  cursorFor,
   renderTooltip,
   renderHighlight,
 }: {
@@ -39,6 +40,8 @@ export function NearestPointHover<T extends HoverItem>({
   /** Positioned (relative) element that wraps the chart; the tooltip is portalled into it. */
   container: HTMLElement | null;
   radius?: number;
+  /** Cursor while hovering an item (default "pointer"), e.g. "grab" for draggable items. */
+  cursorFor?: (item: T) => string;
   renderTooltip: (item: T) => React.ReactNode;
   renderHighlight: (item: T, cx: number, cy: number) => React.ReactNode;
 }) {
@@ -91,6 +94,13 @@ export function NearestPointHover<T extends HoverItem>({
       setActiveKey(null);
     };
     const onMove = (e: PointerEvent) => {
+      // Stand aside while another layer (the centre drag) owns the pointer.
+      if (container.dataset.dragging) {
+        if (frame.current != null) cancelAnimationFrame(frame.current);
+        frame.current = null;
+        setActiveKey(null);
+        return;
+      }
       const { clientX, clientY } = e;
       lastPointer.current = { x: clientX, y: clientY };
       if (frame.current != null) cancelAnimationFrame(frame.current);
@@ -113,7 +123,7 @@ export function NearestPointHover<T extends HoverItem>({
           }
         }
         const hit = best >= 0 && bestScore <= radius;
-        container.style.cursor = hit ? "pointer" : "crosshair";
+        container.style.cursor = hit ? (cursorFor?.(items[best]) ?? "pointer") : "crosshair";
         setActiveKey(hit ? items[best].key : null);
         placeTooltip(clientX, clientY);
       });
@@ -125,7 +135,7 @@ export function NearestPointHover<T extends HoverItem>({
       container.removeEventListener("pointerleave", clear);
       if (frame.current != null) cancelAnimationFrame(frame.current);
     };
-  }, [container, plot, items, pixels, radius, placeTooltip]);
+  }, [container, plot, items, pixels, radius, placeTooltip, cursorFor]);
 
   // The tooltip's size changes with its content; re-place it once the new content is in
   // the DOM so the edge flip uses the right width and height.

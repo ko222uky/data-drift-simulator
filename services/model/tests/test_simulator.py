@@ -33,3 +33,38 @@ def test_projection_is_deterministic():
     a, b = Projection.fit(data), Projection.fit(data.copy())
     np.testing.assert_allclose(a.transform(data), b.transform(data))
     assert a.transform(data).shape == (500, 2)
+
+
+def test_projection_lift_lands_exactly_and_keeps_hidden_directions():
+    sim = make_sim()
+    proj = Projection.fit(sim.sample(500).features)
+    point = sim.centers[1]
+    lifted = proj.lift(point, np.array([3.0, -2.0]))
+    np.testing.assert_allclose(proj.transform(lifted), [3.0, -2.0], atol=1e-9)
+    # The move lies entirely in the plotted plane: nothing changes orthogonal to it.
+    residual = (lifted - point) - ((lifted - point) @ proj.components.T) @ proj.components
+    np.testing.assert_allclose(residual, 0.0, atol=1e-9)
+
+
+def test_place_center_during_drift_pins_that_class():
+    sim = make_sim()
+    sim.start_drift()
+    sim.advance(0.25)
+    pinned = np.full(5, 9.0)
+    sim.place_center(0, pinned)
+    sim.advance(0.25)
+    np.testing.assert_allclose(sim.centers[0], pinned)  # stays where it was placed
+    assert sim.drifting  # the other classes keep drifting
+
+
+def test_set_drift_target_moves_only_that_class_when_idle():
+    sim = make_sim()
+    start = sim.centers.copy()
+    goal = np.zeros(5)
+    sim.set_drift_target(2, goal)
+    assert sim.drifting
+    sim.advance(0.5)
+    np.testing.assert_allclose(sim.centers[2], start[2] + 0.5 * (goal - start[2]))
+    np.testing.assert_allclose(np.delete(sim.centers, 2, axis=0), np.delete(start, 2, axis=0))
+    assert sim.advance(0.5)
+    np.testing.assert_allclose(sim.centers[2], goal)
