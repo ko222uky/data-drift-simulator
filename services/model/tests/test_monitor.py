@@ -173,3 +173,18 @@ def test_continuous_drift_survives_session_reset(engine):
     assert not engine.simulator.drifting  # fresh session starts still
     engine.step()
     assert engine.simulator.drifting  # ...and continuous drift resumes on the first interval
+
+
+def test_move_center_modes(engine):
+    before = engine.projection_view(max_points=10)["centers"][1]
+    engine.move_center(1, before["x"] + 2.0, before["y"] - 1.0, mode="move")
+    moved = engine.projection_view(max_points=10)["centers"][1]
+    assert (round(moved["x"] - before["x"], 6), round(moved["y"] - before["y"], 6)) == (2.0, -1.0)
+    assert not engine.simulator.drifting
+
+    engine.move_center(3, 0.0, 0.0, mode="drift")
+    assert engine.simulator.drifting
+    view = engine.projection_view(max_points=10)
+    assert (round(view["targets"][3]["x"], 6), round(view["targets"][3]["y"], 6)) == (0.0, 0.0)
+    kinds = [e.kind for e in engine.store.recent_events(10)]
+    assert "center_moved" in kinds and "center_target_set" in kinds

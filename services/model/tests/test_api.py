@@ -64,6 +64,11 @@ def test_endpoints(settings):
         assert client.post("/auto-retrain/resume").status_code == 200
         assert client.get("/status").json()["auto_retrain"] is True
 
+        assert client.post("/centers/0", json={"x": 1.0, "y": 2.0}).status_code == 200
+        assert client.post("/centers/0", json={"x": 1.0, "y": 2.0, "mode": "drift"}).status_code == 200
+        assert client.post("/centers/99", json={"x": 0, "y": 0}).status_code == 404
+        assert client.post("/centers/0", json={"x": 0, "y": 0, "mode": "teleport"}).status_code == 422
+
         assert client.post("/drift/continuous/start").status_code == 200
         assert client.get("/status").json()["drift"]["continuous"] is True
         assert client.post("/drift/continuous/stop").status_code == 200

@@ -11,7 +11,9 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
-from pydantic import ValidationError
+from typing import Literal
+
+from pydantic import BaseModel, ValidationError
 
 from .config import ConfigUpdate, MonitorConfig, ServiceSettings, TrainingConfig, TrainingConfigUpdate
 from .monitor import MonitorEngine
@@ -107,6 +109,22 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
             return engine(request).update_training_config(update)
         except ValidationError as exc:  # values outside TrainingConfig bounds
             raise HTTPException(422, jsonable_encoder(exc.errors(include_url=False, include_context=False))) from exc
+
+    class CenterMove(BaseModel):
+        x: float
+        y: float
+        mode: Literal["move", "drift"] = "move"
+
+    @app.post("/centers/{label}", response_model=Accepted, tags=["control"])
+    def move_center(request: Request, label: int, body: CenterMove):
+        """Place a class centre at a 2-D chart position (mode "move") or drift it there ("drift")."""
+        try:
+            engine(request).move_center(label, body.x, body.y, body.mode)
+        except RuntimeError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        return Accepted(detail="centre moved" if body.mode == "move" else "centre drifting to target")
 
     @app.post("/drift", response_model=Accepted, tags=["control"])
     def drift(request: Request):

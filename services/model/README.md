@@ -53,6 +53,7 @@ GET routes are public; everything else is protected by the gateway (see `service
 | GET | `/trainings?limit=&include_history=` | Training runs kept this session, newest first; `include_history=false` omits per-epoch curves (a cheap version list) |
 | GET | `/trainings/{version}` | One run with its per-epoch train/validation curves (404 if not kept) |
 | POST | `/drift` | Start drifting to new random centres |
+| POST | `/centers/{label}` | Body `{x, y, mode}`: place a class centre at a 2-D chart position now (`mode: "move"`) or drift it there at rate `r` (`"drift"`). The position is lifted back to M dimensions within the plotted plane only |
 | POST | `/drift/continuous/start`, `/drift/continuous/stop` | Continuous drift: each completed leg chains into a new one towards random centres at rate `r`; stopping lets the current leg finish |
 | POST | `/retrain` | Queue a manual retrain on W |
 | POST | `/pause`, `/resume` | Pause / resume the interval loop |

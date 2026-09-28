@@ -1,11 +1,14 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { CartesianGrid, ResponsiveContainer, Scatter, ScatterChart, XAxis, YAxis } from "recharts";
 import type { ProjectedCenter, ProjectedPoint, Projection } from "@/lib/types";
+import type { ActionMessage } from "@/lib/useOperatorAction";
+import { CenterDragLayer, type DragMode } from "./CenterDragLayer";
 import { ClassSwatch, Marker, classColor, classShape } from "./classStyle";
 import { NearestPointHover, type HoverItem } from "./NearestPointHover";
 import { Panel, SegmentedToggle } from "./Panel";
+import { StatusMessage } from "./ui";
 
 type Scope = "all" | "window";
 
@@ -105,8 +108,27 @@ function niceDomain(values: number[]): [number, number] {
   return [Math.floor(lo / step) * step - step / 2, Math.ceil(hi / step) * step + step / 2];
 }
 
-export function ProjectionChart({ projection, nClasses }: { projection: Projection | null; nClasses: number }) {
+export function ProjectionChart({
+  projection,
+  nClasses,
+  canEdit = false,
+  onMoveCenter,
+  message = null,
+}: {
+  projection: Projection | null;
+  nClasses: number;
+  /** Signed-in operators can drag class centres. */
+  canEdit?: boolean;
+  onMoveCenter?: (label: number, x: number, y: number, mode: DragMode) => void;
+  message?: ActionMessage | null;
+}) {
   const [scope, setScope] = useState<Scope>("all");
+  const [dragMode, setDragMode] = useState<DragMode>("move");
+  const handleDrop = useCallback(
+    (label: number, x: number, y: number) => onMoveCenter?.(label, x, y, dragMode),
+    [onMoveCenter, dragMode],
+  );
+  const grabCentres = useCallback((item: Hovered) => (canEdit && item.kind === "centre" ? "grab" : "pointer"), [canEdit]);
   // Callback ref: the hover layer portals its tooltip into this positioned wrapper.
   const [chartBox, setChartBox] = useState<HTMLDivElement | null>(null);
 
@@ -132,19 +154,32 @@ export function ProjectionChart({ projection, nClasses }: { projection: Projecti
       title="Data in 2-D projection"
       subtitle={
         projection
-          ? `PCA axes frozen at session start. Window W covers intervals ${projection.window_start}–${projection.interval} (${windowCount.toLocaleString()} points shown solid); older data is faded.`
+          ? `PCA axes frozen at session start. Window W covers intervals ${projection.window_start}–${projection.interval} (${windowCount.toLocaleString()} points shown solid); older data is faded.${canEdit ? " Drag a centre P to move it, or to set where it drifts." : ""}`
           : "Loading…"
       }
       actions={
-        <SegmentedToggle
-          label="Points shown"
-          value={scope}
-          onChange={setScope}
-          options={[
-            { value: "all", label: "W + older" },
-            { value: "window", label: "W only" },
-          ]}
-        />
+        <div className="flex flex-wrap items-center gap-2">
+          {canEdit && (
+            <SegmentedToggle
+              label="Dragging a centre"
+              value={dragMode}
+              onChange={setDragMode}
+              options={[
+                { value: "move", label: "Drag: move now" },
+                { value: "drift", label: "Drag: drift there" },
+              ]}
+            />
+          )}
+          <SegmentedToggle
+            label="Points shown"
+            value={scope}
+            onChange={setScope}
+            options={[
+              { value: "all", label: "W + older" },
+              { value: "window", label: "W only" },
+            ]}
+          />
+        </div>
       }
     >
       <ul className="mb-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-2" aria-label="Legend">
@@ -212,6 +247,7 @@ export function ProjectionChart({ projection, nClasses }: { projection: Projecti
               items={hoverItems}
               container={chartBox}
               renderTooltip={(item) => <HoverCard item={item} />}
+              cursorFor={grabCentres}
               renderHighlight={(item, cx, cy) => (
                 <circle
                   cx={cx}
@@ -224,9 +260,17 @@ export function ProjectionChart({ projection, nClasses }: { projection: Projecti
                 />
               )}
             />
+            <CenterDragLayer
+              centers={projection?.centers ?? []}
+              container={chartBox}
+              enabled={canEdit && !!onMoveCenter}
+              mode={dragMode}
+              onDrop={handleDrop}
+            />
           </ScatterChart>
         </ResponsiveContainer>
       </div>
+      <StatusMessage message={message} />
     </Panel>
   );
 }

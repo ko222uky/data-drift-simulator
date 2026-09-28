@@ -51,6 +51,9 @@ export const modelApi = {
   updateTrainingConfig: (update: Partial<TrainingConfig>) =>
     request<TrainingConfig>("/api/model/training-config", { method: "PUT", body: JSON.stringify(update) }),
   drift: () => post<{ detail: string }>("/api/model/drift"),
+  /** Place a class centre at a projected (x, y) now ("move") or drift it there ("drift"). */
+  moveCenter: (label: number, x: number, y: number, mode: "move" | "drift") =>
+    post<{ detail: string }>(`/api/model/centers/${label}`, { x, y, mode }),
   retrain: () => post<{ detail: string }>("/api/model/retrain"),
   pause: () => post<{ detail: string }>("/api/model/pause"),
   resume: () => post<{ detail: string }>("/api/model/resume"),

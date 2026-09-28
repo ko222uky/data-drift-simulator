@@ -181,6 +181,31 @@ class MonitorEngine:
                 self.store.add_event(self.interval, "continuous_drift_off", "Continuous drift off." + leg)
                 self.tracker.log_config(self.interval, {"continuous_drift": False})
 
+    def move_center(self, label: int, x: float, y: float, mode: str) -> None:
+        """Operator drag on the 2-D chart: place centre ``label`` (mode "move") or make it
+        drift there at rate r (mode "drift"). (x, y) are projected coordinates."""
+        with self.lock:
+            sim, proj = self.simulator, self.projection
+            if sim is None or proj is None:
+                raise RuntimeError("simulation has not started yet")
+            if not 0 <= label < sim.n_classes:
+                raise ValueError(f"class {label} does not exist (0..{sim.n_classes - 1})")
+            position = proj.lift(sim.centers[label], np.array([x, y]))
+            where = f"({x:.2f}, {y:.2f})"
+            if mode == "move":
+                sim.place_center(label, position)
+                self.store.add_event(self.interval, "center_moved", f"Class {label} centre moved to {where}", label=label, x=x, y=y)
+            else:
+                sim.set_drift_target(label, position)
+                self.store.add_event(
+                    self.interval,
+                    "center_target_set",
+                    f"Class {label} centre drifting to {where} at r={self.config.drift_rate:.3f}/interval",
+                    label=label,
+                    x=x,
+                    y=y,
+                )
+
     def set_paused(self, paused: bool) -> None:
         with self.lock:
             if self.paused != paused:

@@ -2,6 +2,8 @@
 
 import { useCallback, useState } from "react";
 import { modelApi } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
+import { useOperatorAction } from "@/lib/useOperatorAction";
 import { usePolling } from "@/lib/usePolling";
 import { AccuracyChart } from "./AccuracyChart";
 import { Controls } from "./Controls";
@@ -59,6 +61,19 @@ export function Dashboard() {
     refreshTrainingList();
   }, [refreshStatus, refreshMetrics, refreshEvents, refreshProjection, refreshTrainings, refreshTrainingList]);
 
+  // Dragging centres on the projection (operators only).
+  const { user } = useAuth();
+  const centreAction = useOperatorAction(refreshAll);
+  const { run: runCentreAction } = centreAction;
+  const moveCenter = useCallback(
+    (label: number, x: number, y: number, mode: "move" | "drift") =>
+      runCentreAction(
+        () => modelApi.moveCenter(label, x, y, mode),
+        mode === "move" ? `Class ${label} centre moved` : `Class ${label} centre drifting to its new position`,
+      ),
+    [runCentreAction],
+  );
+
   const offline = status.error && !status.data;
 
   return (
@@ -89,7 +104,13 @@ export function Dashboard() {
 
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="lg:col-span-2">
-          <ProjectionChart projection={projection.data} nClasses={status.data?.problem.n_classes ?? 0} />
+          <ProjectionChart
+            projection={projection.data}
+            nClasses={status.data?.problem.n_classes ?? 0}
+            canEdit={!!user}
+            onMoveCenter={moveCenter}
+            message={centreAction.message}
+          />
         </div>
         <Controls status={status.data} onChange={refreshAll} />
       </div>
