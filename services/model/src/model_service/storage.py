@@ -68,6 +68,8 @@ class TrainingRun(Base):
     val_from_interval: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # Interval range of the data it was trained on (the window W); ends at ``interval``.
     data_from_interval: Mapped[int] = mapped_column(Integer)
+    # [[interval, n_train, n_val], ...]: how each interval's rows were split.
+    interval_split: Mapped[list[list[int]]] = mapped_column(JSON)
     n_train: Mapped[int] = mapped_column(Integer)
     n_val: Mapped[int] = mapped_column(Integer)
     best_epoch: Mapped[int] = mapped_column(Integer)

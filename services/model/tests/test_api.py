@@ -48,6 +48,9 @@ def test_endpoints(settings):
         # Trained on the window W (the last w intervals); validation is its newest part.
         assert latest["data_from_interval"] == latest["interval"] - engine.config.window_intervals + 1
         assert latest["data_from_interval"] < latest["val_from_interval"] <= latest["interval"]
+        split = latest["interval_split"]
+        assert [row[0] for row in split] == list(range(latest["data_from_interval"], latest["interval"] + 1))
+        assert all((n_val == 0) == (i < latest["val_from_interval"]) for i, _, n_val in split)
         assert latest["config"]["patience"] == 3
 
         summary = client.get("/trainings?include_history=false").json()

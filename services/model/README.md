@@ -120,7 +120,8 @@ Each training (the initial model and every retrain) works as follows:
    metrics are the ones reported, stored and compared with the threshold.
 
 Every run is stored in the `training_runs` table (served by `/trainings` for the dashboard, including
-the interval range it trained on, `data_from_interval`..`interval`, and where validation began) and
+the interval range it trained on, `data_from_interval`..`interval`, where validation began, and
+`interval_split`: each interval's `[interval, n_train, n_val]` row counts) and
 logged to MLflow (`train-v<N>`, with `best_epoch` and `epochs_run` metrics).
 
 Initial training parameters, all changeable live from the dashboard (applied from the next training):

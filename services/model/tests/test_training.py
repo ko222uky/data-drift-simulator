@@ -108,3 +108,21 @@ def test_temporal_split_method_is_the_default(noisy_data):
     result = train(features, labels, intervals, n_classes=4, config=TrainingConfig(max_epochs=3), seed=1)
     assert result.split.method == "temporal"
     assert result.split.val_from_interval == 9
+
+
+def test_interval_counts_for_a_temporal_split():
+    intervals = np.repeat(np.arange(1, 6), 10)  # 5 intervals x 10 rows
+    split = split_by_time(intervals, validation_fraction=0.4, seed=0)
+    assert split.interval_counts(intervals) == [[1, 10, 0], [2, 10, 0], [3, 10, 0], [4, 0, 10], [5, 0, 10]]
+
+
+def test_interval_counts_for_a_random_split_mix_every_interval():
+    from model_service.network import split_random
+
+    intervals = np.repeat(np.arange(1, 11), 100)
+    split = split_random(len(intervals), validation_fraction=0.2, seed=0)
+    counts = split.interval_counts(intervals)
+    assert [c[0] for c in counts] == list(range(1, 11))
+    assert all(n_train + n_val == 100 for _, n_train, n_val in counts)
+    assert sum(n_val for *_, n_val in counts) == 200
+    assert all(n_val > 0 for *_, n_val in counts)  # validation is drawn from every interval
