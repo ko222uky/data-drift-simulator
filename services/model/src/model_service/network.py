@@ -38,15 +38,25 @@ class Classifier(nn.Module):
 class Split:
     """Which rows train and which validate.
 
-    ``method`` is "temporal" when validation is the most recent intervals, or "random"
-    when every row comes from one interval (the initial dataset) so there is no time
-    order to respect.
+    ``method`` is "temporal" when validation is the most recent intervals, or "random" when
+    validation rows are sampled from the whole window (chosen via ``split_method``, or forced
+    when every row comes from one interval, as with the initial dataset).
     """
 
     train_idx: np.ndarray
     val_idx: np.ndarray
     method: str
     val_from_interval: int | None  # first interval of the temporal hold-out
+
+    def interval_counts(self, intervals: np.ndarray) -> list[list[int]]:
+        """Rows per interval as ``[[interval, n_train, n_val], ...]``, ascending by interval.
+
+        This is what the dashboard draws under the accuracy chart: whole intervals for a
+        temporal split, and each interval's actual train/validation mix for a random one.
+        """
+        train = dict(zip(*np.unique(intervals[self.train_idx], return_counts=True), strict=True))
+        val = dict(zip(*np.unique(intervals[self.val_idx], return_counts=True), strict=True))
+        return [[int(i), int(train.get(i, 0)), int(val.get(i, 0))] for i in sorted(set(train) | set(val))]
 
 
 @dataclass

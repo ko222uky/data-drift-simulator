@@ -190,7 +190,7 @@ order, a guided tour of the source, and recipes for common changes.
 Delivered on the `feat/drift` branch; details are in the service and frontend READMEs.
 
 - [x] Highlighted / colored windows in the linechart showing which intervals were used for training and which were used for validation. Highlights do not conflict with the data drift window in the line chart.
-  Where: Accuracy chart: a bottom lane shows the selected model version's training and validation intervals, clear of the drift shading.
+  Where: Accuracy chart: a bottom lane shows, for each interval, how many of its rows the selected model version used for training and for validation (random splits included), clear of the drift shading.
 
 - [x] In the training params, include the train:test split ratio as a parameter. Also allow selection of using a randomized split or using the recent intervals for validation.
   Where: Training parameters: **Validation split** (recent intervals or random rows) and **Validation share**, shown as a train : validation ratio.

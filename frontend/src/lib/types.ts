@@ -39,6 +39,8 @@ export interface TrainingRun {
   val_from_interval: number | null;
   /** First interval of the data the run trained on (the window W); the last is `interval`. */
   data_from_interval: number;
+  /** How each interval's rows were split: [interval, n_train, n_val], ascending. */
+  interval_split: [number, number, number][];
   n_train: number;
   n_val: number;
   /** 0-based index into history of the epoch whose weights were kept. */

@@ -99,6 +99,7 @@ class TrainingRunOut(BaseModel):
     split_method: str
     val_from_interval: int | None
     data_from_interval: int
+    interval_split: list[list[int]]  # [[interval, n_train, n_val], ...]
     n_train: int
     n_val: int
     best_epoch: int

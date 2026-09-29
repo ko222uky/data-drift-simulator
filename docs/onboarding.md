@@ -284,7 +284,9 @@ SQLAlchemy 2.0 declarative models. Tables:
 - `observations`: a rolling window. Rows older than 2*w* intervals are pruned each interval.
 - `interval_metrics`: per-interval accuracy and loss.
 - `events`: the event log.
-- `training_runs`: per-epoch history as JSON, plus split and config details.
+- `training_runs`: per-epoch history as JSON, the config, and the split: method, where
+  validation began, and `interval_split`, each interval's `[interval, n_train, n_val]` row
+  counts (computed by `Split.interval_counts()` in `network.py`).
 
 **`Store.reset()` drops and recreates every table at startup**, because each process start is
 a new session. There are no migrations; see [§15](#15-known-limitations-and-ideas).
@@ -425,7 +427,11 @@ Two things specific to this repo:
   shared by the loss widget and the accuracy chart's highlight lane.
 - **Charts:** built with [Recharts](https://recharts.github.io/en-US/api/).
   - Custom SVG shapes and reference areas carry annotations (drift spans, redeploy rules,
-    the training/validation lane).
+    and the training/validation lane).
+  - The lane draws **one column per interval** from the selected run's `interval_split`:
+    validation (orange) at the bottom and training (green) above, sized by row share. A
+    time-based split gives whole-colour columns; a random split shows every interval's mix.
+    The tooltip lists that interval's row counts.
   - Series colours come from CSS tokens (`--accent`, `--train`, `--validation`,
     `--class-0..7`). Classes are encoded by **colour and marker shape** (`classStyle.tsx`) so
     they stay distinguishable for colour-blind readers.
