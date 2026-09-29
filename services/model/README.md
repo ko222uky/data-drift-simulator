@@ -83,6 +83,10 @@ Initial runtime policy, which you can change live from the dashboard: `MODEL_BAT
 `MODEL_INTERVAL_SECONDS` (5), `MODEL_ACCURACY_THRESHOLD` (0.85), `MODEL_BREACH_INTERVALS`
 (i=3), `MODEL_WINDOW_INTERVALS` (w=10), `MODEL_RETRY_INTERVALS` (I=5), `MODEL_DRIFT_RATE` (r=0.05).
 
+A new seconds-per-interval value applies immediately. The next interval is due that long
+after the previous one, so shortening it doesn't wait out the old interval (the next one runs
+at once if the new length has already passed), and lengthening it extends the current wait.
+
 ## Pausing automatic retraining
 
 `POST /auto-retrain/pause` (the **Automatic retraining** switch on the dashboard) stops

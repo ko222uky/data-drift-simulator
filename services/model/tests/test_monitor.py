@@ -1,3 +1,5 @@
+import time
+
 from model_service.config import ConfigUpdate
 from model_service.monitor import MonitorEngine
 from model_service.storage import Store
@@ -188,3 +190,43 @@ def test_move_center_modes(engine):
     assert (round(view["targets"][3]["x"], 6), round(view["targets"][3]["y"], 6)) == (0.0, 0.0)
     kinds = [e.kind for e in engine.store.recent_events(10)]
     assert "center_moved" in kinds and "center_target_set" in kinds
+
+
+def _wait_for(predicate, timeout: float) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.05)
+    return False
+
+
+def _running_engine(settings, interval_seconds: float) -> MonitorEngine:
+    s = settings.model_copy(update={"interval_seconds": interval_seconds})
+    engine = MonitorEngine(s, Store(s.database_url), Tracker("", "test", "test-model"))
+    engine.start()
+    assert _wait_for(lambda: engine.deployed is not None, 30), "initial training did not finish"
+    return engine
+
+
+def test_shortening_the_interval_takes_effect_without_waiting_out_the_old_one(settings):
+    engine = _running_engine(settings, interval_seconds=60.0)
+    try:
+        assert engine.interval == 0  # still inside the first 60 s wait
+        engine.update_config(ConfigUpdate(interval_seconds=0.5))
+        # Previously the loop slept out the remaining ~60 s before noticing the change.
+        assert _wait_for(lambda: engine.interval >= 2, 5)
+    finally:
+        engine.stop()
+
+
+def test_lengthening_the_interval_extends_the_current_wait(settings):
+    engine = _running_engine(settings, interval_seconds=0.5)
+    try:
+        assert _wait_for(lambda: engine.interval >= 1, 5)
+        engine.update_config(ConfigUpdate(interval_seconds=60.0))
+        before = engine.interval
+        time.sleep(1.5)
+        assert engine.interval <= before + 1  # at most a step already under way
+    finally:
+        engine.stop()

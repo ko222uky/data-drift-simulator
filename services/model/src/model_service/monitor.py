@@ -124,17 +124,22 @@ class MonitorEngine:
             self.initialize()
         except Exception:
             log.exception("Initial training failed")
-        next_due = time.monotonic() + self.config.interval_seconds
+        # The next interval is due interval_seconds after the previous one, recomputed on
+        # every wake-up rather than fixed when the wait starts. Changing the setting (which
+        # wakes this loop) therefore takes effect at once: shortening it runs the next
+        # interval as soon as the new length has elapsed (immediately if it already has),
+        # and lengthening it extends the current wait.
+        last_step = time.monotonic()
         while not self._stop.is_set():
             try:
                 self.run_pending()
-                if not self.paused and time.monotonic() >= next_due:
+                if not self.paused and time.monotonic() >= last_step + self.config.interval_seconds:
                     self.step()
-                    next_due = time.monotonic() + self.config.interval_seconds
+                    last_step = time.monotonic()
             except Exception:
                 log.exception("Monitor loop iteration failed")
-                next_due = time.monotonic() + self.config.interval_seconds
-            timeout = None if self.paused else max(0.0, next_due - time.monotonic())
+                last_step = time.monotonic()
+            timeout = None if self.paused else max(0.0, last_step + self.config.interval_seconds - time.monotonic())
             self._wake.wait(timeout)
             self._wake.clear()
 
