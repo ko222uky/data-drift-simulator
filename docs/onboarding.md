@@ -10,6 +10,9 @@ gets a short primer where you first meet it.
 - Part 3 covers **recipes, operations and known limitations**.
 - Part 4 collects **external documentation** links.
 
+This guide is maintained alongside the code: a change that makes any part of it wrong updates
+it in the same pull request (see [§17](#17-keeping-this-guide-current)).
+
 ---
 
 ## Contents
@@ -30,6 +33,7 @@ gets a short primer where you first meet it.
 14. [Gotchas we've already hit](#14-gotchas-weve-already-hit)
 15. [Known limitations and ideas](#15-known-limitations-and-ideas)
 16. [External resources](#16-external-resources)
+17. [Keeping this guide current](#17-keeping-this-guide-current)
 
 ---
 
@@ -297,6 +301,13 @@ and an explicit tensor signature.
 `MonitorEngine` owns all state. Key ideas:
 
 - **One background thread** (`_run`) runs intervals; it's the only thread that trains.
+- **Scheduling:** the loop sleeps on `self._wake` (a `threading.Event`) until the next
+  interval is due. The due time, *time of the last step + current `interval_seconds`*, is
+  **recomputed on every wake-up**. Any operator action that should take effect at once
+  (`request()`, `update_config`, `set_paused`) calls `self._wake.set()`. That's why a new
+  interval length applies immediately in both directions: shorter doesn't wait out the old
+  interval, longer extends the current wait. If you add an action that changes timing, wake
+  the loop too.
 - **HTTP handlers** read state under `self.lock` (an `RLock`). Slow requests (retrain, reset)
   are queued in `_pending` and executed by the loop thread, so requests never block on
   training.
@@ -435,7 +446,7 @@ Dev loop: start the backend with Compose (set `HTTP_PORT=8080` in `.env` if 80 i
 
 | Area | Command | Notes |
 |---|---|---|
-| Model service | `cd services/model && uv run pytest` | `conftest.py` builds an engine on SQLite with MLflow disabled; call `engine.step()` directly, no threads |
+| Model service | `cd services/model && uv run pytest` | `conftest.py` builds an engine on SQLite with MLflow disabled. Most tests call `engine.step()` directly, with no thread; the interval-timing tests in `test_monitor.py` start the real loop (`engine.start()`) and poll with a timeout |
 | Auth service | `cd services/auth && uv run pytest` | |
 | Frontend | `cd frontend && npm run lint && npm run build` | There are no frontend unit tests yet (see §15) |
 | Workflow | `docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint -no-color` | Lints `.github/workflows` |
@@ -630,5 +641,25 @@ These are deliberate simplifications. Each is a good first project:
 - [GitHub CLI manual](https://cli.github.com/manual/) · [actionlint](https://github.com/rhysd/actionlint)
 - [Conventional Commits](https://www.conventionalcommits.org/) · [Mermaid](https://mermaid.js.org/intro/) ·
   [Mermaid live editor](https://mermaid.live/)
+
+---
+
+## 17. Keeping this guide current
+
+An onboarding guide that has drifted from the code is worse than none. Treat it like code:
+**a pull request that makes any statement here wrong updates this file in the same PR.**
+Before opening a PR, check whether you:
+
+| If your change… | …update |
+|---|---|
+| adds, renames or removes a module, component or script | the [reading order](#3-reading-order) table and that area's section |
+| changes how the control loop, training, auth, routing or deploys behave | the matching section (§5–§11) |
+| adds a setting, endpoint, event kind or panel in a new way | the [recipes](#12-recipes-how-to-make-common-changes) |
+| changes a command, port, path, secret or tool version | [§2](#2-set-up-your-machine), [§11](#11-tests-ci-and-continuous-deployment) or [§13](#13-operating-production) |
+| hits a surprising problem | [§14 Gotchas](#14-gotchas-weve-already-hit) |
+| removes a limitation (or adds one) | [§15](#15-known-limitations-and-ideas) |
+
+Every so often, check that the external links still resolve and that the setup steps in §2
+still work on a fresh clone.
 
 Welcome aboard!
