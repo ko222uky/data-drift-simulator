@@ -140,7 +140,7 @@ code) and README:
 | Compose service | Directory | Stack | Docs |
 |---|---|---|---|
 | `frontend` | `frontend/` | Next.js 16 · React 19 · Tailwind · Recharts | [README](frontend/README.md) |
-| `gateway` | `services/gateway/` | Caddy 2 (TLS, routing, forward-auth) | [README](services/gateway/README.md) |
+| `gateway` | `services/gateway/` | Caddy 2 (routing, forward-auth; HTTPS is at the edge proxy) | [README](services/gateway/README.md) |
 | `auth` | `services/auth/` | FastAPI · JWT (HttpOnly cookie) | [README](services/auth/README.md) |
 | `model` | `services/model/` | FastAPI · PyTorch · SQLAlchemy | [README](services/model/README.md) |
 | `mlflow` | `services/mlflow/` | MLflow 3 tracking server + model registry | [README](services/mlflow/README.md) |
@@ -163,8 +163,8 @@ request flows, the monitoring loop and a table mapping the symbols above
 │   ├── model/                # FastAPI + PyTorch model service
 │   ├── mlflow/               # MLflow server image
 │   └── postgres/             # DB init scripts
-├── deploy/droplet/           # provision.sh, deploy.sh, backup.sh
-└── docs/                     # architecture, deployment, development
+├── deploy/droplet/           # provision.sh, deploy.sh, ci-deploy.sh, backup.sh
+└── docs/                     # architecture, deployment, development, onboarding
 ```
 
 ## Quick start (local)
@@ -190,7 +190,7 @@ git clone <repo-url> /opt/mlops-demo
 bash /opt/mlops-demo/deploy/droplet/provision.sh   # generated secrets + droplet settings
 nano /opt/mlops-demo/.env                           # set your hostname
 bash /opt/mlops-demo/deploy/droplet/deploy.sh
-# then add caddy/sites/datadrift.caddy to kloworld-edge and deploy it
+# then route the hostname: a site file in kloworld-edge's caddy/sites/, and its deploy.sh
 ```
 
 The full guide covers sizing, DNS, backups and troubleshooting:

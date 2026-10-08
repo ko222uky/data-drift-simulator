@@ -553,6 +553,7 @@ its own repo and a site file in `kloworld-edge` (see that repo's README, "Adding
 | DNS | `A` record `datadrift.kloworld.com → 142.93.51.106` at the domain's DNS provider. If that's Cloudflare, it must be **DNS only** (grey cloud) |
 | TLS / edge proxy | Automatic (Caddy + Let's Encrypt) in the shared edge proxy at `/opt/kloworld-edge` ([`kloworld-edge`](https://github.com/ko222uky/kloworld-edge)); certificates are in its `caddy_data` volume. Don't delete it (rate limits). This app's hostname is its `caddy/sites/datadrift.caddy` |
 | Gateway, bypassing the edge | `curl http://127.0.0.1:8001/api/model/health` on the droplet |
+| Change the hostname or HTTPS settings | A PR to `kloworld-edge`, then `bash /opt/kloworld-edge/scripts/deploy.sh` on the droplet. Nothing deploys it automatically. Also update `PUBLIC_HOST` / `PUBLIC_ORIGIN` here |
 
 Remember that **every deploy restarts the model service**, which starts a new simulation
 session. Runtime settings revert to `.env`, but MLflow history is kept.
@@ -607,7 +608,8 @@ These are deliberate simplifications. Each is a good first project:
   interactions (these were verified manually with a headless browser).
 - **`types.ts` is hand-maintained.** It could be generated from FastAPI's OpenAPI schema
   (e.g. [openapi-typescript](https://openapi-ts.dev/)).
-- **Server hardening.**
+- **Server hardening** applies to the whole droplet, so it belongs in `kloworld-edge`'s
+  `scripts/provision.sh`, not here.
   - Set `PermitRootLogin prohibit-password` and add fail2ban; scanners hit SSH constantly.
     Password login is already off.
   - Consider a DigitalOcean Cloud Firewall.

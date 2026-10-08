@@ -134,14 +134,52 @@ This pulls the latest code, builds the images, starts the stack and waits until 
 answers on `127.0.0.1:8001`. The first build takes several minutes, mostly for PyTorch and
 the Next.js build.
 
-Then route the hostname to it: in `kloworld-edge`, add a site file such as
-`caddy/sites/datadrift.caddy` (`demo.example.com { import common; reverse_proxy
-datadrift-gateway:80 }`), merge it, and run `bash /opt/kloworld-edge/scripts/deploy.sh`.
-The proxy obtains the certificate within seconds. Then:
+Then route the hostname to it. In `kloworld-edge`, add a site file such as
+`caddy/sites/datadrift.caddy` (datadrift.kloworld.com already has one):
+
+```caddyfile
+demo.example.com {
+	import common
+	reverse_proxy datadrift-gateway:80
+}
+```
+
+Merge it, then run `bash /opt/kloworld-edge/scripts/deploy.sh` on the droplet. The proxy
+obtains the certificate within seconds. Then:
 
 - `https://demo.example.com/`: dashboard (public)
 - `https://demo.example.com/login`: operator sign-in
 - `https://demo.example.com/mlflow/`: MLflow UI (after sign-in)
+
+### Moving a standalone install behind the edge proxy
+
+Before the edge proxy existed, this app's gateway held ports 80/443 and its own certificate.
+To move such a droplet over (one time, about a minute of downtime):
+
+1. **Prepare, before merging the change that introduced the edge proxy.** Merging deploys
+   automatically, so the droplet must be ready first:
+
+   ```bash
+   docker network inspect edge >/dev/null 2>&1 || docker network create edge
+   git clone https://github.com/ko222uky/kloworld-edge.git /opt/kloworld-edge
+   ```
+
+   Then add these two lines to `/opt/mlops-demo/.env`:
+
+   ```bash
+   COMPOSE_FILE=docker-compose.yml:compose.edge.yml
+   HTTP_PORT=8001
+   ```
+
+2. **Merge** (or run `deploy.sh`). The gateway restarts on `127.0.0.1:8001` and frees ports
+   80/443. The site is down from here until step 3 finishes.
+3. **Start the edge proxy:** `bash /opt/kloworld-edge/scripts/deploy.sh`. It obtains a new
+   certificate for the hostname within seconds.
+4. **Check:** `curl -fsS https://datadrift.kloworld.com/api/model/health`. If CI's smoke test
+   ran before step 3 and failed, re-run the job.
+
+The gateway's old certificate stays in this project's `caddy_data` volume, unused. You can
+leave it there.
 
 ## Automatic deploys (GitHub Actions)
 
@@ -224,9 +262,9 @@ required reviewer under **Settings → Environments → production**.
 - **Changed `ci-deploy.sh`?** Reinstall it with the `scp` / `chmod` lines above.
 - **Revoke or rotate the CI key:** delete its line from `/root/.ssh/authorized_keys`. To
   rotate, repeat steps 1–4.
-- **Serialised deploys:** they queue rather than overlap (a GitHub concurrency group plus a
-  lock file on the droplet, which manual `deploy.sh` runs through `mlops-ci-deploy` also
-  respect).
+- **Serialised deploys:** CI deploys queue rather than overlap. A GitHub concurrency group
+  serialises the jobs, and `mlops-ci-deploy` takes a lock file on the droplet. A manual
+  `deploy.sh` doesn't take that lock, so don't run one while a CI deploy is in progress.
 - **Each deploy restarts the model service,** which starts a new simulation session.
 
 ## Operations
