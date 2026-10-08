@@ -51,20 +51,25 @@ flowchart LR
         UI["Browser<br/>dashboard + MLflow UI"]
     end
 
+    subgraph Edge["kloworld-edge repo · shared by every app on the droplet"]
+        EDGE["edge proxy<br/>Caddy · TLS · routing by hostname"]
+        CERTS[("volume<br/>caddy_data")]
+    end
+
     subgraph Host["DigitalOcean droplet · Docker Compose · network mlops-demo_default"]
-        GW["gateway<br/>Caddy · TLS · routing · forward-auth"]
+        GW["gateway<br/>Caddy · routing · forward-auth"]
         FE["frontend<br/>Next.js server"]
         AUTH["auth<br/>FastAPI · JWT sessions"]
         MODEL["model<br/>FastAPI · PyTorch"]
         MLF["mlflow<br/>tracking server + registry"]
         PG[("postgres<br/>DBs: model, mlflow<br/>volume: pgdata")]
         ART[("volume<br/>mlflow_artifacts")]
-        CERTS[("volume<br/>caddy_data")]
     end
 
     LE["Let's Encrypt"]
 
-    UI -- "HTTPS :443 (HTTP :80 redirects)" --> GW
+    UI -- "HTTPS :443 (HTTP :80 redirects)" --> EDGE
+    EDGE -- "HTTP, network edge<br/>datadrift-gateway:80" --> GW
     GW -- "/ (pages)" --> FE
     GW -- "/api/auth/* (login, logout, me)" --> AUTH
     GW -. "forward-auth /verify<br/>before writes and /mlflow" .-> AUTH
@@ -75,17 +80,19 @@ flowchart LR
     MODEL -- "SQL: window, metrics,<br/>events, training runs" --> PG
     MLF -- "SQL: backend store" --> PG
     MLF -- "model artifacts" --> ART
-    GW -- "TLS certificates" --> CERTS
-    GW -. "ACME certificate issue/renewal" .-> LE
+    EDGE -- "TLS certificates" --> CERTS
+    EDGE -. "ACME certificate issue/renewal" .-> LE
 ```
 
 **Architecture type: containerized microservices behind an API gateway.** The system is split
 into single-purpose services that talk only over HTTP (and SQL to the database). None
 imports another's code, and each has its own directory, dependencies, image, tests and
-README. The **gateway** is the single entry point, using the *edge gateway* pattern: it
-terminates TLS, routes by path, and enforces authentication centrally with *forward-auth*,
-asking the auth service to verify the session before any write and before MLflow. The
-backend services therefore contain no auth code, and they aren't reachable from outside.
+README. The **gateway** is the single entry point, using the *API gateway* pattern: it routes
+by path and enforces authentication centrally with *forward-auth*, asking the auth service to
+verify the session before any write and before MLflow. The backend services therefore
+contain no auth code, and they aren't reachable from outside. In front of it, the shared
+**edge proxy** ([`kloworld-edge`](https://github.com/ko222uky/kloworld-edge), a separate repo)
+terminates HTTPS for every app on the droplet and hands this app's hostname to the gateway.
 
 - **The browser only ever talks to the gateway.** The Next.js server renders the dashboard,
   and the dashboard then calls `/api/...` on the same origin. The frontend server never
@@ -109,8 +116,10 @@ network (`mlops-demo_default`), where services find each other by name (for exam
 | `mlflow` | built | `services/mlflow/Dockerfile`: `python:3.13-slim`, pinned `mlflow==3.16.1` |
 | `postgres` | `postgres:17-alpine` (official) | init script creates the `mlflow` database |
 
-- **Only the gateway publishes ports** (80, 443 and UDP 443 for HTTP/3). Everything else,
-  Postgres included, is reachable only on the internal network.
+- **Only the gateway publishes a port**, and only on `127.0.0.1`. Everything else, Postgres
+  included, is reachable only on the internal network. On the droplet,
+  [`compose.edge.yml`](compose.edge.yml) also attaches the gateway to the shared `edge`
+  network, where the edge proxy reaches it.
 - **Every custom image runs as a non-root user.**
 - **Health checks:** each service has a `HEALTHCHECK`, and Compose starts services in
   dependency order with `depends_on: condition: service_healthy`
@@ -118,9 +127,9 @@ network (`mlops-demo_default`), where services find each other by name (for exam
 - **Configuration and secrets** come from a `.env` file (mode 600 on the server) through
   Compose variable substitution. Nothing secret is baked into an image.
 - **Persistent data** lives in named volumes that survive rebuilds and redeploys:
-  `pgdata`, `mlflow_artifacts`, `caddy_data` (TLS certificates) and `caddy_config`.
-- **The same Compose file runs locally** (`http://localhost`) and on the droplet (automatic
-  HTTPS). The droplet is updated by GitHub Actions after CI passes on `main`; see
+  `pgdata`, `mlflow_artifacts`, and the gateway's `caddy_data` and `caddy_config`.
+- **The same Compose file runs locally** (`http://localhost`) and on the droplet (behind the
+  edge proxy's HTTPS). The droplet is updated by GitHub Actions after CI passes on `main`; see
   [docs/deployment.md](docs/deployment.md).
 
 # Implementation
@@ -131,7 +140,7 @@ code) and README:
 | Compose service | Directory | Stack | Docs |
 |---|---|---|---|
 | `frontend` | `frontend/` | Next.js 16 · React 19 · Tailwind · Recharts | [README](frontend/README.md) |
-| `gateway` | `services/gateway/` | Caddy 2 (TLS, routing, forward-auth) | [README](services/gateway/README.md) |
+| `gateway` | `services/gateway/` | Caddy 2 (routing, forward-auth; HTTPS is at the edge proxy) | [README](services/gateway/README.md) |
 | `auth` | `services/auth/` | FastAPI · JWT (HttpOnly cookie) | [README](services/auth/README.md) |
 | `model` | `services/model/` | FastAPI · PyTorch · SQLAlchemy | [README](services/model/README.md) |
 | `mlflow` | `services/mlflow/` | MLflow 3 tracking server + model registry | [README](services/mlflow/README.md) |
@@ -144,7 +153,8 @@ request flows, the monitoring loop and a table mapping the symbols above
 
 ```
 .
-├── docker-compose.yml        # the whole stack; only the gateway publishes ports
+├── docker-compose.yml        # the whole stack; only the gateway publishes a port
+├── compose.edge.yml          # droplet only: joins the gateway to the edge proxy's network
 ├── .env.example              # every deploy-time setting
 ├── frontend/                 # Next.js dashboard
 ├── services/
@@ -153,8 +163,8 @@ request flows, the monitoring loop and a table mapping the symbols above
 │   ├── model/                # FastAPI + PyTorch model service
 │   ├── mlflow/               # MLflow server image
 │   └── postgres/             # DB init scripts
-├── deploy/droplet/           # provision.sh, deploy.sh, backup.sh
-└── docs/                     # architecture, deployment, development
+├── deploy/droplet/           # provision.sh, deploy.sh, ci-deploy.sh, backup.sh
+└── docs/                     # architecture, deployment, development, onboarding
 ```
 
 ## Quick start (local)
@@ -170,15 +180,20 @@ retrains on the window _W_, a new version is registered in MLflow, and accuracy 
 
 ## Deploy to DigitalOcean
 
+The droplet is shared: [`kloworld-edge`](https://github.com/ko222uky/kloworld-edge) sets up
+the host (Docker, swap, firewall) and runs the HTTPS proxy in front of every app. With that
+in place:
+
 ```bash
 ssh root@<droplet-ip>
 git clone <repo-url> /opt/mlops-demo
-bash /opt/mlops-demo/deploy/droplet/provision.sh   # Docker, swap, firewall, generated secrets
-nano /opt/mlops-demo/.env                           # set your domain
+bash /opt/mlops-demo/deploy/droplet/provision.sh   # generated secrets + droplet settings
+nano /opt/mlops-demo/.env                           # set your hostname
 bash /opt/mlops-demo/deploy/droplet/deploy.sh
+# then route the hostname: a site file in kloworld-edge's caddy/sites/, and its deploy.sh
 ```
 
-The full guide covers sizing, DNS without a domain, backups and troubleshooting:
+The full guide covers sizing, DNS, backups and troubleshooting:
 [docs/deployment.md](docs/deployment.md). For per-service workflows, see
 [docs/development.md](docs/development.md).
 

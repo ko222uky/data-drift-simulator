@@ -16,7 +16,9 @@ as a **forward-auth** hook, so no other service needs its own authentication cod
   `Authorization: Bearer <jwt>` or the cookie, returns `200` with an `X-Auth-User` header or
   `401`. The gateway returns 404 for `/verify` to the outside world.
 - **Brute-force protection:** after 5 failed logins from one client IP within 15 minutes,
-  further attempts return `429`. The count lives in memory, so run a single worker.
+  further attempts return `429`. The count lives in memory, so run a single worker. The
+  client IP is the first `X-Forwarded-For` address. That's the real visitor only because the
+  gateway trusts the edge proxy's headers (`trusted_proxies` in the Caddyfile).
 
 ## API (exposed as `/api/auth/*` by the gateway)
 

@@ -1,8 +1,8 @@
-# API gateway + edge proxy. The only container with published ports.
+# API gateway: the app's single entry point. Plain HTTP on :80, for any hostname.
 #
-# SITE_ADDRESS decides TLS:
-#   http://localhost        -> plain HTTP for local development
-#   demo.example.com        -> automatic HTTPS via Let's Encrypt (DNS must point here)
+# On the droplet, HTTPS is terminated in front of this container by the kloworld-edge proxy
+# (github.com/ko222uky/kloworld-edge), which reaches it over the shared `edge` Docker
+# network as datadrift-gateway:80. Locally, docker compose publishes it on http://localhost.
 #
 # Routes:
 #   /api/auth/*   -> auth service      (public: login / logout / me)
@@ -11,7 +11,18 @@
 #   everything else -> Next.js frontend
 #
 # Upstreams default to the docker compose service names; the *_UPSTREAM variables
-# exist so the same file can front services running directly on the host.
+# exist so the same file can front services running directly on the host, and SITE_ADDRESS
+# (default :80) lets that host-run Caddy listen elsewhere, e.g. http://localhost:8088.
+
+{
+	servers {
+		# Requests arrive from the edge proxy (or Docker's port forwarding), both on private
+		# addresses. Trusting them keeps the real client in X-Forwarded-For (the auth service
+		# throttles logins per client) and the original https in X-Forwarded-Proto. The edge
+		# proxy trusts no one and overwrites what clients send, so neither can be spoofed.
+		trusted_proxies static private_ranges
+	}
+}
 
 {$SITE_ADDRESS::80} {
 	encode zstd gzip

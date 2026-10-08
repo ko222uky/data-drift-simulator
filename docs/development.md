@@ -8,7 +8,11 @@ docker compose up --build
 ```
 
 Open http://localhost (set `HTTP_PORT=8080` in `.env` if port 80 is taken) and sign in with
-`ADMIN_USERNAME` / `ADMIN_PASSWORD` from `.env`.
+`ADMIN_USERNAME` / `ADMIN_PASSWORD` from `.env`. The gateway port is bound to `127.0.0.1`, so
+other machines on your network can't reach it.
+
+To try the droplet's layout locally (the HTTPS edge proxy in front of the gateway), see the
+`kloworld-edge` README, "Testing locally".
 
 ## Working on one service
 

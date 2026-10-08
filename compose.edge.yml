@@ -1,0 +1,15 @@
+# Droplet only: attach the gateway to the shared `edge` network, where the kloworld-edge
+# proxy (github.com/ko222uky/kloworld-edge) reaches it as datadrift-gateway:80 and serves
+# it over HTTPS. Enabled by COMPOSE_FILE in the droplet's .env; the network is created by
+# that repo's scripts.
+
+services:
+  gateway:
+    networks:
+      default:
+      edge:
+        aliases: [datadrift-gateway]
+
+networks:
+  edge:
+    external: true

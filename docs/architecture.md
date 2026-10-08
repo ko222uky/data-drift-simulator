@@ -6,8 +6,10 @@
 flowchart LR
     Browser["Browser<br/>(dashboard / MLflow UI)"]
 
+    EDGE["edge proxy<br/>kloworld-edge · Caddy · TLS"]
+
     subgraph Droplet["DigitalOcean droplet (docker compose)"]
-        GW["gateway<br/>Caddy · TLS · routing · forward-auth"]
+        GW["gateway<br/>Caddy · routing · forward-auth"]
         FE["frontend<br/>Next.js"]
         AUTH["auth<br/>FastAPI · JWT"]
         MODEL["model<br/>FastAPI · PyTorch"]
@@ -16,7 +18,8 @@ flowchart LR
         ART[("volume<br/>mlflow artifacts")]
     end
 
-    Browser -- "HTTPS :443" --> GW
+    Browser -- "HTTPS :443" --> EDGE
+    EDGE -- "HTTP, by hostname" --> GW
     GW -- "/" --> FE
     GW -- "/api/auth/*" --> AUTH
     GW -. "verify session" .-> AUTH
@@ -30,7 +33,7 @@ flowchart LR
 
 | Service | Directory | Tech | Owns | Talks to |
 |---|---|---|---|---|
-| gateway | [`services/gateway`](../services/gateway) | Caddy 2 | TLS, routing, access policy | everything (HTTP) |
+| gateway | [`services/gateway`](../services/gateway) | Caddy 2 | Routing, access policy | everything (HTTP) |
 | frontend | [`frontend`](../frontend) | Next.js 16, React 19, Recharts | The dashboard UI | gateway only (same-origin) |
 | auth | [`services/auth`](../services/auth) | FastAPI, PyJWT | Operator sessions | nobody |
 | model | [`services/model`](../services/model) | FastAPI, PyTorch, SQLAlchemy | Simulation, classifier, monitoring, retraining | postgres, mlflow |
@@ -39,7 +42,9 @@ flowchart LR
 
 Boundaries are strict. Each service has its own directory, dependency manifest, Dockerfile,
 tests and README. No service imports another's code, and they communicate only over HTTP
-or SQL. Only the gateway publishes ports.
+or SQL. Only the gateway publishes a port (on `127.0.0.1`). HTTPS is terminated outside
+this repo by the shared edge proxy ([`kloworld-edge`](https://github.com/ko222uky/kloworld-edge)),
+which serves every app on the droplet and forwards this app's hostname to the gateway.
 
 ## Access policy
 

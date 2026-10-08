@@ -1,14 +1,28 @@
 # Deploying to a DigitalOcean droplet
 
-The whole system runs on one droplet with docker compose. Caddy obtains HTTPS certificates
-automatically.
+The app runs on a droplet shared with other KLOWORLD apps. Two repos are involved:
+
+- **[`kloworld-edge`](https://github.com/ko222uky/kloworld-edge)** owns the host: it sets up
+  Docker, swap and the firewall, and runs the **edge proxy** (Caddy) at `/opt/kloworld-edge`.
+  That proxy is the only thing listening on ports 80/443. It obtains HTTPS certificates
+  automatically and forwards each hostname to one app.
+- **This repo** runs at `/opt/mlops-demo` as its own compose project. Its gateway publishes
+  no public ports. It joins the shared `edge` Docker network as `datadrift-gateway`, and its
+  loopback port `127.0.0.1:8001` is only for health checks.
+
+```
+Internet ─► :443 edge proxy (/opt/kloworld-edge) ─┬─► datadrift-gateway:80 (/opt/mlops-demo)
+                                                   └─► <other apps>
+```
 
 ## 1. Create the droplet
+
+Skip this if the droplet already runs `kloworld-edge`.
 
 | Setting | Recommendation |
 |---|---|
 | Image | Ubuntu 24.04 LTS x64 |
-| Size | **Basic, 2 vCPU / 4 GB** (about $24/mo) recommended. 2 GB works for running the stack, but builds rely on the swap file that `provision.sh` adds |
+| Size | **Basic, 2 vCPU / 4 GB** (about $24/mo) recommended. 2 GB works for running the stack, but builds rely on the swap file that `kloworld-edge`'s `provision.sh` adds. Other apps share the same memory |
 | Auth | SSH key |
 | Extras | Enable monitoring; optionally add a Cloud Firewall allowing 22, 80, 443 (TCP + UDP 443) |
 
@@ -35,25 +49,13 @@ HTTPS needs a hostname:
 - **No domain:** use `sslip.io`, which resolves `<ip-with-dashes>.sslip.io` to that IP. For
   example, `203-0-113-10.sslip.io` works with no DNS setup at all.
 
-The name must resolve **before** the first deploy.
+The name must resolve **before** the edge proxy starts serving it (step 5).
 
-## 3. Provision and fetch the code
+## 3. Provision the host and fetch the code
 
-Run these from your own machine. Stream `provision.sh` to the droplet over SSH; the
-droplet doesn't need the code for this step:
-
-```bash
-ssh root@<droplet-ip> 'bash -s' < deploy/droplet/provision.sh
-```
-
-`provision.sh` does the following:
-
-- Installs Docker Engine and the compose plugin.
-- Adds 4 GB of swap.
-- Sets up the firewall to allow SSH, 80 and 443 only (IPv4 and IPv6).
-- Turns on unattended security upgrades.
-
-It's safe to re-run.
+**The host** is set up once, for every app, by `kloworld-edge`. Its README covers it:
+`scripts/provision.sh` (Docker, swap, firewall, unattended upgrades, and the `edge` network),
+then `scripts/deploy.sh` to start the proxy. Skip this if the droplet already runs it.
 
 ### Private repository: give the droplet a read-only deploy key
 
@@ -90,13 +92,19 @@ key never leaves it, and only the public half goes to GitHub.
    git clone git@github.com:<owner>/<repo>.git /opt/mlops-demo
    ```
 
+GitHub accepts a deploy key for **one** repository only. A second private repo cloned on the
+same droplet needs its own key and a `Host` alias in `~/.ssh/config`, as shown in the
+`kloworld-edge` README.
+
 To revoke access later, delete the key on GitHub. For a **public** repo, skip the deploy key
 and run `git clone https://github.com/<owner>/<repo>.git /opt/mlops-demo`.
 
 ### Create `.env`
 
-Run `provision.sh` once more, now that the code is in place. This time it also creates
-`/opt/mlops-demo/.env` with generated passwords and secrets (mode 600):
+Now that the code is in place, run this repo's `provision.sh`. It checks that the host is
+ready (Docker and the `edge` network), then creates `/opt/mlops-demo/.env` (mode 600) with
+generated passwords and secrets and the droplet settings `HTTP_PORT=8001` and
+`COMPOSE_FILE=docker-compose.yml:compose.edge.yml`:
 
 ```bash
 bash /opt/mlops-demo/deploy/droplet/provision.sh
@@ -107,10 +115,11 @@ bash /opt/mlops-demo/deploy/droplet/provision.sh
 Edit `/opt/mlops-demo/.env`:
 
 ```bash
-SITE_ADDRESS=demo.example.com          # no scheme -> automatic HTTPS
 PUBLIC_HOST=demo.example.com
 PUBLIC_ORIGIN=https://demo.example.com
 COOKIE_SECURE=true
+COMPOSE_FILE=docker-compose.yml:compose.edge.yml   # set by provision.sh
+HTTP_PORT=8001                                      # set by provision.sh
 ```
 
 Your operator password is the generated `ADMIN_PASSWORD` in the same file.
@@ -122,12 +131,55 @@ bash /opt/mlops-demo/deploy/droplet/deploy.sh
 ```
 
 This pulls the latest code, builds the images, starts the stack and waits until the gateway
-answers. The first build takes several minutes, mostly for PyTorch and the Next.js build.
-Then:
+answers on `127.0.0.1:8001`. The first build takes several minutes, mostly for PyTorch and
+the Next.js build.
+
+Then route the hostname to it. In `kloworld-edge`, add a site file such as
+`caddy/sites/datadrift.caddy` (datadrift.kloworld.com already has one):
+
+```caddyfile
+demo.example.com {
+	import common
+	reverse_proxy datadrift-gateway:80
+}
+```
+
+Merge it, then run `bash /opt/kloworld-edge/scripts/deploy.sh` on the droplet. The proxy
+obtains the certificate within seconds. Then:
 
 - `https://demo.example.com/`: dashboard (public)
 - `https://demo.example.com/login`: operator sign-in
 - `https://demo.example.com/mlflow/`: MLflow UI (after sign-in)
+
+### Moving a standalone install behind the edge proxy
+
+Before the edge proxy existed, this app's gateway held ports 80/443 and its own certificate.
+To move such a droplet over (one time, about a minute of downtime):
+
+1. **Prepare, before merging the change that introduced the edge proxy.** Merging deploys
+   automatically, so the droplet must be ready first:
+
+   ```bash
+   docker network inspect edge >/dev/null 2>&1 || docker network create edge
+   git clone https://github.com/ko222uky/kloworld-edge.git /opt/kloworld-edge
+   ```
+
+   Then add these two lines to `/opt/mlops-demo/.env`:
+
+   ```bash
+   COMPOSE_FILE=docker-compose.yml:compose.edge.yml
+   HTTP_PORT=8001
+   ```
+
+2. **Merge** (or run `deploy.sh`). The gateway restarts on `127.0.0.1:8001` and frees ports
+   80/443. The site is down from here until step 3 finishes.
+3. **Start the edge proxy:** `bash /opt/kloworld-edge/scripts/deploy.sh`. It obtains a new
+   certificate for the hostname within seconds.
+4. **Check:** `curl -fsS https://datadrift.kloworld.com/api/model/health`. If CI's smoke test
+   ran before step 3 and failed, re-run the job.
+
+The gateway's old certificate stays in this project's `caddy_data` volume, unused. You can
+leave it there.
 
 ## Automatic deploys (GitHub Actions)
 
@@ -210,9 +262,9 @@ required reviewer under **Settings → Environments → production**.
 - **Changed `ci-deploy.sh`?** Reinstall it with the `scp` / `chmod` lines above.
 - **Revoke or rotate the CI key:** delete its line from `/root/.ssh/authorized_keys`. To
   rotate, repeat steps 1–4.
-- **Serialised deploys:** they queue rather than overlap (a GitHub concurrency group plus a
-  lock file on the droplet, which manual `deploy.sh` runs through `mlops-ci-deploy` also
-  respect).
+- **Serialised deploys:** CI deploys queue rather than overlap. A GitHub concurrency group
+  serialises the jobs, and `mlops-ci-deploy` takes a lock file on the droplet. A manual
+  `deploy.sh` doesn't take that lock, so don't run one while a CI deploy is in progress.
 - **Each deploy restarts the model service,** which starts a new simulation session.
 
 ## Operations
@@ -222,6 +274,8 @@ required reviewer under **Settings → Environments → production**.
 | Update to latest `main` | Automatic on merge (see above); manual fallback: `bash deploy/droplet/deploy.sh` |
 | Status | `docker compose ps` |
 | Logs | `docker compose logs -f --tail=100 model` (or `gateway`, `mlflow`, …) |
+| Edge proxy logs (TLS, 502s) | `cd /opt/kloworld-edge && docker compose logs -f --tail=100 caddy` |
+| Gateway, bypassing the edge | `curl http://127.0.0.1:8001/api/model/health` |
 | Restart one service | `docker compose restart model` |
 | Back up databases + artifacts | `bash deploy/droplet/backup.sh /var/backups/mlops-demo` |
 | Stop everything | `docker compose down` (volumes, and therefore data, are kept) |
@@ -251,7 +305,10 @@ docker compose restart mlflow
 | Actions `deploy` job: `DEPLOY_SSH_KEY is not a usable private key` | The secret is empty, misnamed or damaged (a partial paste, joined lines, or the public key by mistake); all of these give `error in libcrypto`. Set it from the file with `gh secret set DEPLOY_SSH_KEY < ci_deploy_key`. If the original private key is gone, rotate the key (see "Automatic deploys") |
 | Actions `deploy` job: `Host key verification failed` | `DEPLOY_KNOWN_HOSTS` doesn't match the droplet (for example after a rebuild). Re-verify the fingerprint and update the secret |
 | Actions `deploy` job: `is not on origin/main; refusing to deploy` | The run wasn't for a commit on `main`; only `main` deploys |
-| Browser shows a certificate error | DNS must resolve to the droplet *before* the first start; `docker compose logs gateway` shows the ACME errors |
+| Browser shows a certificate error | DNS must resolve to the droplet before the edge proxy serves the name. The ACME errors are in the edge proxy's logs (`cd /opt/kloworld-edge && docker compose logs caddy`) |
+| `502 Bad Gateway` from the site | The edge proxy can't reach `datadrift-gateway:80`. Check `docker compose ps` here, and that `COMPOSE_FILE` in `.env` includes `compose.edge.yml` (`docker network inspect edge` should list `mlops-demo-gateway-1`) |
+| `network edge declared as external, but could not be found` | The host isn't provisioned by `kloworld-edge`, or the network was removed. `docker network create edge`, then deploy again |
+| Everyone gets "too many attempts" on login at once | The gateway isn't trusting the edge proxy's `X-Forwarded-For`, so every client shares one IP. Keep `trusted_proxies` in the Caddyfile's global block |
 | Login succeeds, but controls still say "Sign in" | With HTTPS, `COOKIE_SECURE=true`. On plain HTTP it must be `false`, or the browser drops the cookie |
 | MLflow shows `Invalid Host header` / blocked requests | `PUBLIC_HOST` / `PUBLIC_ORIGIN` must match the address in the browser |
 | Build killed / exit 137 | Out of memory. Check `swapon --show`, or resize the droplet |
@@ -260,10 +317,11 @@ docker compose restart mlflow
 
 ## Security notes
 
-- Only the gateway publishes ports. Postgres, MLflow and the Python services sit on the
-  internal compose network.
-- Docker publishes ports by writing iptables rules that bypass `ufw`, so only publish ports
-  on the gateway. A DigitalOcean Cloud Firewall sits in front of the droplet and isn't
-  affected by this.
+- Only the edge proxy listens publicly. This app's gateway publishes just `127.0.0.1:8001`.
+  Postgres, MLflow and the Python services sit on the internal compose network, and only the
+  gateway joins the shared `edge` network.
+- Docker publishes ports by writing iptables rules that bypass `ufw`. Never publish an app
+  port without the `127.0.0.1:` prefix. A DigitalOcean Cloud Firewall sits in front of the
+  droplet and isn't affected by this.
 - Rotate `JWT_SECRET` to sign out every session. Rotate `ADMIN_PASSWORD` by editing `.env`
   and running `docker compose up -d auth`.

@@ -1,8 +1,11 @@
-# The whole system. Only the gateway publishes ports; every other service is reachable
-# solely on the internal compose network.
+# The whole system. Only the gateway publishes a port, and only on 127.0.0.1; every other
+# service is reachable solely on the internal compose network.
 #
 #   cp .env.example .env   # then fill in the secrets
 #   docker compose up -d --build
+#
+# On the droplet, .env sets COMPOSE_FILE to add compose.edge.yml, which attaches the gateway
+# to the shared `edge` network behind the kloworld-edge HTTPS proxy.
 
 name: mlops-demo
 
@@ -14,14 +17,11 @@ services:
     <<: *restart
     image: caddy:2.11-alpine
     ports:
-      - "${HTTP_PORT:-80}:80"
-      - "${HTTPS_PORT:-443}:443"
-      - "${HTTPS_PORT:-443}:443/udp"
-    environment:
-      SITE_ADDRESS: ${SITE_ADDRESS:-http://localhost}
+      # Loopback only: the public way in is the edge proxy, never this port.
+      - "127.0.0.1:${HTTP_PORT:-80}:80"
     volumes:
       - ./services/gateway/Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data # TLS certificates -- keep this volume
+      - caddy_data:/data # Caddy's own state (no certificates: TLS is at the edge)
       - caddy_config:/config
     depends_on:
       frontend: { condition: service_healthy }
