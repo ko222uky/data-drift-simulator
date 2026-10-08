@@ -46,21 +46,24 @@ and redeploys. Every training run is logged to **MLflow**, and a **Next.js dashb
 all live.
 
 It's deployed at **https://datadrift.kloworld.com** on a DigitalOcean droplet, and every merge
-to `main` deploys automatically.
+to `main` deploys automatically. The droplet can host several apps. HTTPS for all of them is
+handled by a shared **edge proxy**, which lives in its own repo,
+[`kloworld-edge`](https://github.com/ko222uky/kloworld-edge), and forwards this app's hostname
+to our gateway.
 
 ```
-Browser ──HTTPS──► gateway (Caddy) ──► frontend (Next.js)      pages
-                                  ├──► auth (FastAPI)          login + session checks
-                                  ├──► model (FastAPI+PyTorch) simulation, training, API
-                                  └──► mlflow                  experiment tracking UI/API
-                      model ──► mlflow ──► postgres + artifact volume
-                      model ──► postgres
+Browser ──HTTPS──► edge proxy ──HTTP──► gateway (Caddy) ──► frontend (Next.js)      pages
+                   (kloworld-edge,                     ├──► auth (FastAPI)          login + session checks
+                    TLS, by hostname)                  ├──► model (FastAPI+PyTorch) simulation, training, API
+                                                       └──► mlflow                  experiment tracking UI/API
+                                           model ──► mlflow ──► postgres + artifact volume
+                                           model ──► postgres
 ```
 
 The full diagram is in the [README](../README.md#architecture) and the request flows are in
 [architecture.md](architecture.md).
 
-**Access you'll need:** the GitHub repo, SSH access to the droplet (add your public key to
+**Access you'll need:** the GitHub repos (this one and `kloworld-edge`), SSH access to the droplet (add your public key to
 `/root/.ssh/authorized_keys`), the DigitalOcean account, and the account at the DNS provider that
 hosts `kloworld.com`. The operator password for the dashboard is `ADMIN_PASSWORD` in
 `/opt/mlops-demo/.env` on the droplet.
@@ -160,7 +163,7 @@ Start with the [§9 primer](#9-primer-typescript-react-and-nextjs) and
 | # | Read | What to take away |
 |---|---|---|
 | 26 | [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) | Tests on every PR; deploy on `main` |
-| 27 | [`deploy/droplet/`](../deploy/droplet): `provision.sh`, `deploy.sh`, `ci-deploy.sh`, `backup.sh` | How the server was built and how deploys run |
+| 27 | [`deploy/droplet/`](../deploy/droplet): `provision.sh`, `deploy.sh`, `ci-deploy.sh`, `backup.sh`; then [`compose.edge.yml`](../compose.edge.yml) and the [`kloworld-edge`](https://github.com/ko222uky/kloworld-edge) README | How the app was installed and how deploys run; how the shared edge proxy reaches it |
 | 28 | [docs/deployment.md](deployment.md), [docs/development.md](development.md) | Runbooks: setup, DNS, secrets, troubleshooting, local workflows |
 
 After that, try [§12](#12-recipes-how-to-make-common-changes) on a branch: add a trivial
@@ -182,10 +185,14 @@ If Docker is new, this is the one concept to absorb first. Everything else runs 
 - **Network:** Compose puts all six containers on one private network (`mlops-demo_default`),
   where they reach each other **by service name**. That's why the model service talks to
   `http://mlflow:5000` and the Caddyfile routes to `auth:8000`.
-- **Ports:** only the `gateway` publishes ports (80, 443) to the host. Nothing else is
-  reachable from outside, Postgres included.
+- **Ports:** only the `gateway` publishes a port, and only on `127.0.0.1` (`HTTP_PORT`: 80
+  locally, 8001 on the droplet). Nothing else is reachable from outside, Postgres included.
+  On the droplet the public way in is the edge proxy: [`compose.edge.yml`](../compose.edge.yml),
+  enabled there by `COMPOSE_FILE` in `.env`, also attaches the gateway to the shared `edge`
+  network as `datadrift-gateway`.
 - **Volumes:** containers are disposable, so anything that must survive lives in **named
-  volumes**: `pgdata`, `mlflow_artifacts`, `caddy_data` (TLS certificates), `caddy_config`.
+  volumes**: `pgdata`, `mlflow_artifacts`, plus `caddy_data` and `caddy_config` for the
+  gateway's own state (TLS certificates live in the edge proxy, not here).
   `docker compose down` keeps them; `docker compose down -v` **deletes them**, so be careful.
 - **Health checks:** each image declares a `HEALTHCHECK`. Compose's
   `depends_on: condition: service_healthy` then starts services in order
@@ -213,11 +220,19 @@ docker compose down                    # stop everything (volumes are kept)
 ## 5. The gateway (Caddy)
 
 [Caddy](https://caddyserver.com/docs/) is a web server. Here it is the **only door into the
-system**. Read [`services/gateway/Caddyfile`](../services/gateway/Caddyfile) alongside this:
+app**. Read [`services/gateway/Caddyfile`](../services/gateway/Caddyfile) alongside this:
 
-- **The site address** (`{$SITE_ADDRESS}`) decides TLS. `http://localhost` means plain HTTP;
-  a hostname like `datadrift.kloworld.com` makes Caddy obtain and renew a Let's Encrypt
-  certificate automatically ([automatic HTTPS](https://caddyserver.com/docs/automatic-https)).
+- **Plain HTTP on `:80`, for any hostname.** HTTPS is the edge proxy's job: on the droplet,
+  [`kloworld-edge`](https://github.com/ko222uky/kloworld-edge) (also Caddy) holds the Let's
+  Encrypt certificate for `datadrift.kloworld.com`
+  ([automatic HTTPS](https://caddyserver.com/docs/automatic-https)) and forwards each request
+  to `datadrift-gateway:80` over the shared `edge` network. Locally, you talk to the gateway
+  directly on http://localhost.
+- **`trusted_proxies`** (the global block at the top) makes the gateway trust the
+  `X-Forwarded-*` headers that arrive from private addresses, meaning the edge proxy. Without
+  it, every request would look like it came from the proxy's IP. The auth service, which
+  throttles logins per client, would then lock out everyone at once, and the backends would
+  see `http` instead of `https`.
 - **`handle` / `handle_path` blocks** route by URL path. `handle_path` also strips the matched
   prefix, so `/api/model/status` arrives at the model service as `/status`.
 - **[`forward_auth`](https://caddyserver.com/docs/caddyfile/directives/forward_auth)** is how
@@ -520,6 +535,9 @@ across restarts: introduce [Alembic](https://alembic.sqlalchemy.org/) first.
 3. Add a route in the Caddyfile (with `forward_auth` if it needs a login).
 4. Add a CI job.
 
+A separate *app* on the same droplet, with its own hostname, doesn't go here at all: it gets
+its own repo and a site file in `kloworld-edge` (see that repo's README, "Adding an app").
+
 ---
 
 ## 13. Operating production
@@ -533,7 +551,8 @@ across restarts: introduce [Alembic](https://alembic.sqlalchemy.org/) first.
 | Backups | `bash deploy/droplet/backup.sh /var/backups/mlops-demo` (Postgres dumps + artifacts); schedule it with cron as documented |
 | Secrets | GitHub Actions secrets `DEPLOY_HOST`, `DEPLOY_SSH_KEY`, `DEPLOY_KNOWN_HOSTS`. **Set them with `gh secret set … < file`, never by pasting.** App secrets live in `/opt/mlops-demo/.env` (mode 600) |
 | DNS | `A` record `datadrift.kloworld.com → 142.93.51.106` at the domain's DNS provider. If that's Cloudflare, it must be **DNS only** (grey cloud) |
-| TLS | Automatic (Caddy + Let's Encrypt), stored in the `caddy_data` volume. Don't delete it (rate limits) |
+| TLS / edge proxy | Automatic (Caddy + Let's Encrypt) in the shared edge proxy at `/opt/kloworld-edge` ([`kloworld-edge`](https://github.com/ko222uky/kloworld-edge)); certificates are in its `caddy_data` volume. Don't delete it (rate limits). This app's hostname is its `caddy/sites/datadrift.caddy` |
+| Gateway, bypassing the edge | `curl http://127.0.0.1:8001/api/model/health` on the droplet |
 
 Remember that **every deploy restarts the model service**, which starts a new simulation
 session. Runtime settings revert to `.env`, but MLflow history is kept.

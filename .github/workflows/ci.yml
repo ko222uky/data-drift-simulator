@@ -47,8 +47,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: cp .env.example .env && docker compose config --quiet
+      - run: docker compose -f docker-compose.yml -f compose.edge.yml config --quiet
       - run: >
-          docker run --rm -e SITE_ADDRESS=http://localhost
+          docker run --rm
           -v "$PWD/services/gateway/Caddyfile:/etc/caddy/Caddyfile:ro"
           caddy:2.11-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 

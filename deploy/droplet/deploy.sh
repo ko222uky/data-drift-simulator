@@ -34,7 +34,9 @@ docker image prune -f >/dev/null
 
 echo "==> Waiting for the gateway"
 set -a; . ./.env; set +a
-url="${PUBLIC_ORIGIN:-http://localhost}/api/model/health"
+# Check the gateway itself on its loopback port. The public URL also depends on the edge
+# proxy, which CI's smoke test covers.
+url="http://127.0.0.1:${HTTP_PORT:-80}/api/model/health"
 for _ in $(seq 1 60); do
     if curl -fsS -o /dev/null "$url" 2>/dev/null; then
         docker compose ps
